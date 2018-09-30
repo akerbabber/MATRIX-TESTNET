@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package ens
 
@@ -20,22 +20,24 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/matrix/go-matrix/accounts/abi/bind"
-	"github.com/matrix/go-matrix/accounts/abi/bind/backends"
-	"github.com/matrix/go-matrix/contracts/ens/contract"
-	"github.com/matrix/go-matrix/core"
-	"github.com/matrix/go-matrix/crypto"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind/backends"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/contracts/ens/contract"
+	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/crypto"
 )
 
 var (
-	key, _ = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
-	name   = "my name on ENS"
-	hash   = crypto.Keccak256Hash([]byte("my content"))
-	addr   = crypto.PubkeyToAddress(key.PublicKey)
+	key, _   = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	name     = "my name on ENS"
+	hash     = crypto.Keccak256Hash([]byte("my content"))
+	addr     = crypto.PubkeyToAddress(key.PublicKey)
+	testAddr = common.HexToAddress("0x1234123412341234123412341234123412341234")
 )
 
 func TestENS(t *testing.T) {
-	contractBackend := backends.NewSimulatedBackend(core.GenesisAlloc{addr: {Balance: big.NewInt(1000000000)}})
+	contractBackend := backends.NewSimulatedBackend(core.GenesisAlloc{addr: {Balance: big.NewInt(1000000000)}}, 10000000)
 	transactOpts := bind.NewKeyedTransactor(key)
 
 	ensAddr, ens, err := DeployENS(transactOpts, contractBackend)
@@ -55,7 +57,7 @@ func TestENS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("can't deploy resolver: %v", err)
 	}
-	if _, err := ens.SetResolver(ensNode(name), resolverAddr); err != nil {
+	if _, err := ens.SetResolver(EnsNode(name), resolverAddr); err != nil {
 		t.Fatalf("can't set resolver: %v", err)
 	}
 	contractBackend.Commit()
@@ -73,5 +75,20 @@ func TestENS(t *testing.T) {
 	}
 	if vhost != hash {
 		t.Fatalf("resolve error, expected %v, got %v", hash.Hex(), vhost.Hex())
+	}
+
+	// set the address for the name
+	if _, err = ens.SetAddr(name, testAddr); err != nil {
+		t.Fatalf("can't set address: %v", err)
+	}
+	contractBackend.Commit()
+
+	// Try to resolve the name to an address
+	recoveredAddr, err := ens.Addr(name)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if vhost != hash {
+		t.Fatalf("resolve error, expected %v, got %v", testAddr.Hex(), recoveredAddr.Hex())
 	}
 }

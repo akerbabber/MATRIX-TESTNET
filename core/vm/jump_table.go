@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2015 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package vm
 
@@ -20,11 +20,11 @@ import (
 	"errors"
 	"math/big"
 
-	"github.com/matrix/go-matrix/params"
+	"github.com/ethereum/go-ethereum/params"
 )
 
 type (
-	executionFunc       func(pc *uint64, env *EVM, contract *Contract, memory *Memory, stack *Stack) ([]byte, error)
+	executionFunc       func(pc *uint64, interpreter *EVMInterpreter, contract *Contract, memory *Memory, stack *Stack) ([]byte, error)
 	gasFunc             func(params.GasTable, *EVM, *Contract, *Stack, *Memory, uint64) (uint64, error) // last parameter is the requested memory size as a uint64
 	stackValidationFunc func(*Stack) error
 	memorySizeFunc      func(*Stack) *big.Int
@@ -33,7 +33,7 @@ type (
 var errGasUintOverflow = errors.New("gas uint64 overflow")
 
 type operation struct {
-	// op is the operation function
+	// execute is the operation function
 	execute executionFunc
 	// gasCost is the gas function and returns the gas required for execution
 	gasCost gasFunc
@@ -51,17 +51,17 @@ type operation struct {
 }
 
 var (
-	frontierInstructionSet       = NewFrontierInstructionSet()
-	homesteadInstructionSet      = NewHomesteadInstructionSet()
-	byzantiumInstructionSet      = NewByzantiumInstructionSet()
-	constantinopleInstructionSet = NewConstantinopleInstructionSet()
+	frontierInstructionSet       = newFrontierInstructionSet()
+	homesteadInstructionSet      = newHomesteadInstructionSet()
+	byzantiumInstructionSet      = newByzantiumInstructionSet()
+	constantinopleInstructionSet = newConstantinopleInstructionSet()
 )
 
 // NewConstantinopleInstructionSet returns the frontier, homestead
 // byzantium and contantinople instructions.
-func NewConstantinopleInstructionSet() [256]operation {
+func newConstantinopleInstructionSet() [256]operation {
 	// instructions that can be executed during the byzantium phase.
-	instructionSet := NewByzantiumInstructionSet()
+	instructionSet := newByzantiumInstructionSet()
 	instructionSet[SHL] = operation{
 		execute:       opSHL,
 		gasCost:       constGasFunc(GasFastestStep),
@@ -80,14 +80,29 @@ func NewConstantinopleInstructionSet() [256]operation {
 		validateStack: makeStackFunc(2, 1),
 		valid:         true,
 	}
+	instructionSet[EXTCODEHASH] = operation{
+		execute:       opExtCodeHash,
+		gasCost:       gasExtCodeHash,
+		validateStack: makeStackFunc(1, 1),
+		valid:         true,
+	}
+	instructionSet[CREATE2] = operation{
+		execute:       opCreate2,
+		gasCost:       gasCreate2,
+		validateStack: makeStackFunc(4, 1),
+		memorySize:    memoryCreate2,
+		valid:         true,
+		writes:        true,
+		returns:       true,
+	}
 	return instructionSet
 }
 
 // NewByzantiumInstructionSet returns the frontier, homestead and
 // byzantium instructions.
-func NewByzantiumInstructionSet() [256]operation {
+func newByzantiumInstructionSet() [256]operation {
 	// instructions that can be executed during the homestead phase.
-	instructionSet := NewHomesteadInstructionSet()
+	instructionSet := newHomesteadInstructionSet()
 	instructionSet[STATICCALL] = operation{
 		execute:       opStaticCall,
 		gasCost:       gasStaticCall,
@@ -123,8 +138,8 @@ func NewByzantiumInstructionSet() [256]operation {
 
 // NewHomesteadInstructionSet returns the frontier and homestead
 // instructions that can be executed during the homestead phase.
-func NewHomesteadInstructionSet() [256]operation {
-	instructionSet := NewFrontierInstructionSet()
+func newHomesteadInstructionSet() [256]operation {
+	instructionSet := newFrontierInstructionSet()
 	instructionSet[DELEGATECALL] = operation{
 		execute:       opDelegateCall,
 		gasCost:       gasDelegateCall,
@@ -138,7 +153,7 @@ func NewHomesteadInstructionSet() [256]operation {
 
 // NewFrontierInstructionSet returns the frontier instructions
 // that can be executed during the frontier phase.
-func NewFrontierInstructionSet() [256]operation {
+func newFrontierInstructionSet() [256]operation {
 	return [256]operation{
 		STOP: {
 			execute:       opStop,

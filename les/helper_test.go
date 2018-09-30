@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 // This file contains some shares testing functionality, common to  multiple
 // different files and modules being tested.
@@ -24,21 +24,22 @@ import (
 	"math/big"
 	"sync"
 	"testing"
+	"time"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/consensus/manash"
-	"github.com/matrix/go-matrix/core"
-	"github.com/matrix/go-matrix/core/types"
-	"github.com/matrix/go-matrix/core/vm"
-	"github.com/matrix/go-matrix/crypto"
-	"github.com/matrix/go-matrix/man"
-	"github.com/matrix/go-matrix/mandb"
-	"github.com/matrix/go-matrix/event"
-	"github.com/matrix/go-matrix/les/flowcontrol"
-	"github.com/matrix/go-matrix/light"
-	"github.com/matrix/go-matrix/p2p"
-	"github.com/matrix/go-matrix/p2p/discover"
-	"github.com/matrix/go-matrix/params"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/consensus/ethash"
+	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/eth"
+	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/event"
+	"github.com/ethereum/go-ethereum/les/flowcontrol"
+	"github.com/ethereum/go-ethereum/light"
+	"github.com/ethereum/go-ethereum/p2p"
+	"github.com/ethereum/go-ethereum/p2p/enode"
+	"github.com/ethereum/go-ethereum/params"
 )
 
 var (
@@ -82,11 +83,11 @@ func testChainGen(i int, block *core.BlockGen) {
 
 	switch i {
 	case 0:
-		// In block 1, the test bank sends account #1 some man.
+		// In block 1, the test bank sends account #1 some ether.
 		tx, _ := types.SignTx(types.NewTransaction(block.TxNonce(testBankAddress), acc1Addr, big.NewInt(10000), params.TxGas, nil, nil), signer, testBankKey)
 		block.AddTx(tx)
 	case 1:
-		// In block 2, the test bank sends some more man to account #1.
+		// In block 2, the test bank sends some more ether to account #1.
 		// acc1Addr passes it on to account #2.
 		// acc1Addr creates a test contract.
 		// acc1Addr creates a test event.
@@ -123,6 +124,15 @@ func testChainGen(i int, block *core.BlockGen) {
 	}
 }
 
+// testIndexers creates a set of indexers with specified params for testing purpose.
+func testIndexers(db ethdb.Database, odr light.OdrBackend, iConfig *light.IndexerConfig) (*core.ChainIndexer, *core.ChainIndexer, *core.ChainIndexer) {
+	chtIndexer := light.NewChtIndexer(db, odr, iConfig.ChtSize, iConfig.ChtConfirms)
+	bloomIndexer := eth.NewBloomIndexer(db, iConfig.BloomSize, iConfig.BloomConfirms)
+	bloomTrieIndexer := light.NewBloomTrieIndexer(db, odr, iConfig.BloomSize, iConfig.BloomTrieSize)
+	bloomIndexer.AddChildIndexer(bloomTrieIndexer)
+	return chtIndexer, bloomIndexer, bloomTrieIndexer
+}
+
 func testRCL() RequestCostList {
 	cl := make(RequestCostList, len(reqList))
 	for i, code := range reqList {
@@ -134,12 +144,12 @@ func testRCL() RequestCostList {
 }
 
 // newTestProtocolManager creates a new protocol manager for testing purposes,
-// with the given number of blocks already known, and potential notification
-// channels for different events.
-func newTestProtocolManager(lightSync bool, blocks int, generator func(int, *core.BlockGen), peers *peerSet, odr *LesOdr, db mandb.Database) (*ProtocolManager, error) {
+// with the given number of blocks already known, potential notification
+// channels for different events and relative chain indexers array.
+func newTestProtocolManager(lightSync bool, blocks int, generator func(int, *core.BlockGen), odr *LesOdr, peers *peerSet, db ethdb.Database) (*ProtocolManager, error) {
 	var (
 		evmux  = new(event.TypeMux)
-		engine = manash.NewFaker()
+		engine = ethash.NewFaker()
 		gspec  = core.Genesis{
 			Config: params.TestChainConfig,
 			Alloc:  core.GenesisAlloc{testBankAddress: {Balance: testBankFunds}},
@@ -154,36 +164,24 @@ func newTestProtocolManager(lightSync bool, blocks int, generator func(int, *cor
 	if lightSync {
 		chain, _ = light.NewLightChain(odr, gspec.Config, engine)
 	} else {
-		blockchain, _ := core.NewBlockChain(db, nil, gspec.Config, engine, vm.Config{})
-
-		chtIndexer := light.NewChtIndexer(db, false)
-		chtIndexer.Start(blockchain)
-
-		bbtIndexer := light.NewBloomTrieIndexer(db, false)
-
-		bloomIndexer := man.NewBloomIndexer(db, params.BloomBitsBlocks)
-		bloomIndexer.AddChildIndexer(bbtIndexer)
-		bloomIndexer.Start(blockchain)
-
-		gchain, _ := core.GenerateChain(gspec.Config, genesis, manash.NewFaker(), db, blocks, generator)
+		blockchain, _ := core.NewBlockChain(db, nil, gspec.Config, engine, vm.Config{}, nil)
+		gchain, _ := core.GenerateChain(gspec.Config, genesis, ethash.NewFaker(), db, blocks, generator)
 		if _, err := blockchain.InsertChain(gchain); err != nil {
 			panic(err)
 		}
 		chain = blockchain
 	}
 
-	var protocolVersions []uint
+	indexConfig := light.TestServerIndexerConfig
 	if lightSync {
-		protocolVersions = ClientProtocolVersions
-	} else {
-		protocolVersions = ServerProtocolVersions
+		indexConfig = light.TestClientIndexerConfig
 	}
-	pm, err := NewProtocolManager(gspec.Config, lightSync, protocolVersions, NetworkId, evmux, engine, peers, chain, nil, db, odr, nil, make(chan struct{}), new(sync.WaitGroup))
+	pm, err := NewProtocolManager(gspec.Config, indexConfig, lightSync, NetworkId, evmux, engine, peers, chain, nil, db, odr, nil, nil, make(chan struct{}), new(sync.WaitGroup))
 	if err != nil {
 		return nil, err
 	}
 	if !lightSync {
-		srv := &LesServer{protocolManager: pm}
+		srv := &LesServer{lesCommons: lesCommons{protocolManager: pm}}
 		pm.server = srv
 
 		srv.defParams = &flowcontrol.ServerParams{
@@ -199,11 +197,11 @@ func newTestProtocolManager(lightSync bool, blocks int, generator func(int, *cor
 }
 
 // newTestProtocolManagerMust creates a new protocol manager for testing purposes,
-// with the given number of blocks already known, and potential notification
-// channels for different events. In case of an error, the constructor force-
+// with the given number of blocks already known, potential notification
+// channels for different events and relative chain indexers array. In case of an error, the constructor force-
 // fails the test.
-func newTestProtocolManagerMust(t *testing.T, lightSync bool, blocks int, generator func(int, *core.BlockGen), peers *peerSet, odr *LesOdr, db mandb.Database) *ProtocolManager {
-	pm, err := newTestProtocolManager(lightSync, blocks, generator, peers, odr, db)
+func newTestProtocolManagerMust(t *testing.T, lightSync bool, blocks int, generator func(int, *core.BlockGen), odr *LesOdr, peers *peerSet, db ethdb.Database) *ProtocolManager {
+	pm, err := newTestProtocolManager(lightSync, blocks, generator, odr, peers, db)
 	if err != nil {
 		t.Fatalf("Failed to create protocol manager: %v", err)
 	}
@@ -223,7 +221,7 @@ func newTestPeer(t *testing.T, name string, version int, pm *ProtocolManager, sh
 	app, net := p2p.MsgPipe()
 
 	// Generate a random id and create the peer
-	var id discover.NodeID
+	var id enode.ID
 	rand.Read(id[:])
 
 	peer := pm.newPeer(version, NetworkId, p2p.NewPeer(id, name, nil), net)
@@ -260,7 +258,7 @@ func newTestPeerPair(name string, version int, pm, pm2 *ProtocolManager) (*peer,
 	app, net := p2p.MsgPipe()
 
 	// Generate a random id and create the peer
-	var id discover.NodeID
+	var id enode.ID
 	rand.Read(id[:])
 
 	peer := pm.newPeer(version, NetworkId, p2p.NewPeer(id, name, nil), net)
@@ -325,4 +323,123 @@ func (p *testPeer) handshake(t *testing.T, td *big.Int, head common.Hash, headNu
 // manager of termination.
 func (p *testPeer) close() {
 	p.app.Close()
+}
+
+// TestEntity represents a network entity for testing with necessary auxiliary fields.
+type TestEntity struct {
+	db    ethdb.Database
+	rPeer *peer
+	tPeer *testPeer
+	peers *peerSet
+	pm    *ProtocolManager
+	// Indexers
+	chtIndexer       *core.ChainIndexer
+	bloomIndexer     *core.ChainIndexer
+	bloomTrieIndexer *core.ChainIndexer
+}
+
+// newServerEnv creates a server testing environment with a connected test peer for testing purpose.
+func newServerEnv(t *testing.T, blocks int, protocol int, waitIndexers func(*core.ChainIndexer, *core.ChainIndexer, *core.ChainIndexer)) (*TestEntity, func()) {
+	db := ethdb.NewMemDatabase()
+	cIndexer, bIndexer, btIndexer := testIndexers(db, nil, light.TestServerIndexerConfig)
+
+	pm := newTestProtocolManagerMust(t, false, blocks, testChainGen, nil, nil, db)
+	peer, _ := newTestPeer(t, "peer", protocol, pm, true)
+
+	cIndexer.Start(pm.blockchain.(*core.BlockChain))
+	bIndexer.Start(pm.blockchain.(*core.BlockChain))
+
+	// Wait until indexers generate enough index data.
+	if waitIndexers != nil {
+		waitIndexers(cIndexer, bIndexer, btIndexer)
+	}
+
+	return &TestEntity{
+			db:               db,
+			tPeer:            peer,
+			pm:               pm,
+			chtIndexer:       cIndexer,
+			bloomIndexer:     bIndexer,
+			bloomTrieIndexer: btIndexer,
+		}, func() {
+			peer.close()
+			// Note bloom trie indexer will be closed by it parent recursively.
+			cIndexer.Close()
+			bIndexer.Close()
+		}
+}
+
+// newClientServerEnv creates a client/server arch environment with a connected les server and light client pair
+// for testing purpose.
+func newClientServerEnv(t *testing.T, blocks int, protocol int, waitIndexers func(*core.ChainIndexer, *core.ChainIndexer, *core.ChainIndexer), newPeer bool) (*TestEntity, *TestEntity, func()) {
+	db, ldb := ethdb.NewMemDatabase(), ethdb.NewMemDatabase()
+	peers, lPeers := newPeerSet(), newPeerSet()
+
+	dist := newRequestDistributor(lPeers, make(chan struct{}))
+	rm := newRetrieveManager(lPeers, dist, nil)
+	odr := NewLesOdr(ldb, light.TestClientIndexerConfig, rm)
+
+	cIndexer, bIndexer, btIndexer := testIndexers(db, nil, light.TestServerIndexerConfig)
+	lcIndexer, lbIndexer, lbtIndexer := testIndexers(ldb, odr, light.TestClientIndexerConfig)
+	odr.SetIndexers(lcIndexer, lbtIndexer, lbIndexer)
+
+	pm := newTestProtocolManagerMust(t, false, blocks, testChainGen, nil, peers, db)
+	lpm := newTestProtocolManagerMust(t, true, 0, nil, odr, lPeers, ldb)
+
+	startIndexers := func(clientMode bool, pm *ProtocolManager) {
+		if clientMode {
+			lcIndexer.Start(pm.blockchain.(*light.LightChain))
+			lbIndexer.Start(pm.blockchain.(*light.LightChain))
+		} else {
+			cIndexer.Start(pm.blockchain.(*core.BlockChain))
+			bIndexer.Start(pm.blockchain.(*core.BlockChain))
+		}
+	}
+
+	startIndexers(false, pm)
+	startIndexers(true, lpm)
+
+	// Execute wait until function if it is specified.
+	if waitIndexers != nil {
+		waitIndexers(cIndexer, bIndexer, btIndexer)
+	}
+
+	var (
+		peer, lPeer *peer
+		err1, err2  <-chan error
+	)
+	if newPeer {
+		peer, err1, lPeer, err2 = newTestPeerPair("peer", protocol, pm, lpm)
+		select {
+		case <-time.After(time.Millisecond * 100):
+		case err := <-err1:
+			t.Fatalf("peer 1 handshake error: %v", err)
+		case err := <-err2:
+			t.Fatalf("peer 2 handshake error: %v", err)
+		}
+	}
+
+	return &TestEntity{
+			db:               db,
+			pm:               pm,
+			rPeer:            peer,
+			peers:            peers,
+			chtIndexer:       cIndexer,
+			bloomIndexer:     bIndexer,
+			bloomTrieIndexer: btIndexer,
+		}, &TestEntity{
+			db:               ldb,
+			pm:               lpm,
+			rPeer:            lPeer,
+			peers:            lPeers,
+			chtIndexer:       lcIndexer,
+			bloomIndexer:     lbIndexer,
+			bloomTrieIndexer: lbtIndexer,
+		}, func() {
+			// Note bloom trie indexers will be closed by their parents recursively.
+			cIndexer.Close()
+			bIndexer.Close()
+			lcIndexer.Close()
+			lbIndexer.Close()
+		}
 }

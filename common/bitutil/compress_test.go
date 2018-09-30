@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package bitutil
 
@@ -21,7 +21,7 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/matrix/go-matrix/common/hexutil"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 )
 
 // Tests that data bitset encoding and decoding works and is bijective.
@@ -117,7 +117,7 @@ func TestDecodingCycle(t *testing.T) {
 // TestCompression tests that compression works by returning either the bitset
 // encoded input, or the actual input if the bitset version is longer.
 func TestCompression(t *testing.T) {
-	// Check the the compression returns the bitset encoding is shorter
+	// Check the compression returns the bitset encoding is shorter
 	in := hexutil.MustDecode("0x4912385c0e7b64000000")
 	out := hexutil.MustDecode("0x80fe4912385c0e7b64")
 
@@ -127,7 +127,7 @@ func TestCompression(t *testing.T) {
 	if data, err := DecompressBytes(out, len(in)); err != nil || !bytes.Equal(data, in) {
 		t.Errorf("decoding mismatch for sparse data: have %x, want %x, error %v", data, in, err)
 	}
-	// Check the the compression returns the input if the bitset encoding is longer
+	// Check the compression returns the input if the bitset encoding is longer
 	in = hexutil.MustDecode("0xdf7070533534333636313639343638373532313536346c1bc33339343837313070706336343035336336346c65fefb3930393233383838ac2f65fefb")
 	out = hexutil.MustDecode("0xdf7070533534333636313639343638373532313536346c1bc33339343837313070706336343035336336346c65fefb3930393233383838ac2f65fefb")
 

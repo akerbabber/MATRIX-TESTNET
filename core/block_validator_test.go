@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2015 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package core
 
@@ -21,28 +21,28 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matrix/go-matrix/consensus/manash"
-	"github.com/matrix/go-matrix/core/types"
-	"github.com/matrix/go-matrix/core/vm"
-	"github.com/matrix/go-matrix/mandb"
-	"github.com/matrix/go-matrix/params"
+	"github.com/ethereum/go-ethereum/consensus/ethash"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/params"
 )
 
 // Tests that simple header verification works, for both good and bad blocks.
 func TestHeaderVerification(t *testing.T) {
 	// Create a simple chain to verify
 	var (
-		testdb    = mandb.NewMemDatabase()
+		testdb    = ethdb.NewMemDatabase()
 		gspec     = &Genesis{Config: params.TestChainConfig}
 		genesis   = gspec.MustCommit(testdb)
-		blocks, _ = GenerateChain(params.TestChainConfig, genesis, manash.NewFaker(), testdb, 8, nil)
+		blocks, _ = GenerateChain(params.TestChainConfig, genesis, ethash.NewFaker(), testdb, 8, nil)
 	)
 	headers := make([]*types.Header, len(blocks))
 	for i, block := range blocks {
 		headers[i] = block.Header()
 	}
 	// Run the header checker for blocks one-by-one, checking for both valid and invalid nonces
-	chain, _ := NewBlockChain(testdb, nil, params.TestChainConfig, manash.NewFaker(), vm.Config{})
+	chain, _ := NewBlockChain(testdb, nil, params.TestChainConfig, ethash.NewFaker(), vm.Config{}, nil)
 	defer chain.Stop()
 
 	for i := 0; i < len(blocks); i++ {
@@ -50,10 +50,10 @@ func TestHeaderVerification(t *testing.T) {
 			var results <-chan error
 
 			if valid {
-				engine := manash.NewFaker()
+				engine := ethash.NewFaker()
 				_, results = engine.VerifyHeaders(chain, []*types.Header{headers[i]}, []bool{true})
 			} else {
-				engine := manash.NewFakeFailer(headers[i].Number.Uint64())
+				engine := ethash.NewFakeFailer(headers[i].Number.Uint64())
 				_, results = engine.VerifyHeaders(chain, []*types.Header{headers[i]}, []bool{true})
 			}
 			// Wait for the verification result
@@ -84,10 +84,10 @@ func TestHeaderConcurrentVerification32(t *testing.T) { testHeaderConcurrentVeri
 func testHeaderConcurrentVerification(t *testing.T, threads int) {
 	// Create a simple chain to verify
 	var (
-		testdb    = mandb.NewMemDatabase()
+		testdb    = ethdb.NewMemDatabase()
 		gspec     = &Genesis{Config: params.TestChainConfig}
 		genesis   = gspec.MustCommit(testdb)
-		blocks, _ = GenerateChain(params.TestChainConfig, genesis, manash.NewFaker(), testdb, 8, nil)
+		blocks, _ = GenerateChain(params.TestChainConfig, genesis, ethash.NewFaker(), testdb, 8, nil)
 	)
 	headers := make([]*types.Header, len(blocks))
 	seals := make([]bool, len(blocks))
@@ -106,11 +106,11 @@ func testHeaderConcurrentVerification(t *testing.T, threads int) {
 		var results <-chan error
 
 		if valid {
-			chain, _ := NewBlockChain(testdb, nil, params.TestChainConfig, manash.NewFaker(), vm.Config{})
+			chain, _ := NewBlockChain(testdb, nil, params.TestChainConfig, ethash.NewFaker(), vm.Config{}, nil)
 			_, results = chain.engine.VerifyHeaders(chain, headers, seals)
 			chain.Stop()
 		} else {
-			chain, _ := NewBlockChain(testdb, nil, params.TestChainConfig, manash.NewFakeFailer(uint64(len(headers)-1)), vm.Config{})
+			chain, _ := NewBlockChain(testdb, nil, params.TestChainConfig, ethash.NewFakeFailer(uint64(len(headers)-1)), vm.Config{}, nil)
 			_, results = chain.engine.VerifyHeaders(chain, headers, seals)
 			chain.Stop()
 		}
@@ -156,10 +156,10 @@ func TestHeaderConcurrentAbortion32(t *testing.T) { testHeaderConcurrentAbortion
 func testHeaderConcurrentAbortion(t *testing.T, threads int) {
 	// Create a simple chain to verify
 	var (
-		testdb    = mandb.NewMemDatabase()
+		testdb    = ethdb.NewMemDatabase()
 		gspec     = &Genesis{Config: params.TestChainConfig}
 		genesis   = gspec.MustCommit(testdb)
-		blocks, _ = GenerateChain(params.TestChainConfig, genesis, manash.NewFaker(), testdb, 1024, nil)
+		blocks, _ = GenerateChain(params.TestChainConfig, genesis, ethash.NewFaker(), testdb, 1024, nil)
 	)
 	headers := make([]*types.Header, len(blocks))
 	seals := make([]bool, len(blocks))
@@ -173,7 +173,7 @@ func testHeaderConcurrentAbortion(t *testing.T, threads int) {
 	defer runtime.GOMAXPROCS(old)
 
 	// Start the verifications and immediately abort
-	chain, _ := NewBlockChain(testdb, nil, params.TestChainConfig, manash.NewFakeDelayer(time.Millisecond), vm.Config{})
+	chain, _ := NewBlockChain(testdb, nil, params.TestChainConfig, ethash.NewFakeDelayer(time.Millisecond), vm.Config{}, nil)
 	defer chain.Stop()
 
 	abort, results := chain.engine.VerifyHeaders(chain, headers, seals)

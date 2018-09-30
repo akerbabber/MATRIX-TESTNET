@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2014 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package core
 
@@ -25,16 +25,16 @@ import (
 	"math/big"
 	"strings"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/common/hexutil"
-	"github.com/matrix/go-matrix/common/math"
-	"github.com/matrix/go-matrix/core/rawdb"
-	"github.com/matrix/go-matrix/core/state"
-	"github.com/matrix/go-matrix/core/types"
-	"github.com/matrix/go-matrix/mandb"
-	"github.com/matrix/go-matrix/log"
-	"github.com/matrix/go-matrix/params"
-	"github.com/matrix/go-matrix/rlp"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/common/math"
+	"github.com/ethereum/go-ethereum/core/rawdb"
+	"github.com/ethereum/go-ethereum/core/state"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/params"
+	"github.com/ethereum/go-ethereum/rlp"
 )
 
 //go:generate gencodec -type Genesis -field-override genesisSpecMarshaling -out gen_genesis.go
@@ -45,21 +45,15 @@ var errGenesisNoConfig = errors.New("genesis has no chain configuration")
 // Genesis specifies the header fields, state of a genesis block. It also defines hard
 // fork switch-over blocks through the chain configuration.
 type Genesis struct {
-	Config      *params.ChainConfig `json:"config"`
-	Nonce       uint64              `json:"nonce"`
-	Timestamp   uint64              `json:"timestamp"`
-	ExtraData   []byte              `json:"extraData"`
-	Version     []byte              `json:"version"`
-	Leader      common.Address      `json:"leader"`
-	Elect       []common.Elect      `json:"elect"    gencodec:"required"`
-	NetTopology common.NetTopology  `json:"nettopology"       gencodec:"required"`
-	Signatures  []common.Signature  `json:"signatures" gencodec:"required"`
-
-	GasLimit   uint64         `json:"gasLimit"   gencodec:"required"`
-	Difficulty *big.Int       `json:"difficulty" gencodec:"required"`
-	Mixhash    common.Hash    `json:"mixHash"`
-	Coinbase   common.Address `json:"coinbase"`
-	Alloc      GenesisAlloc   `json:"alloc"      gencodec:"required"`
+	Config     *params.ChainConfig `json:"config"`
+	Nonce      uint64              `json:"nonce"`
+	Timestamp  uint64              `json:"timestamp"`
+	ExtraData  []byte              `json:"extraData"`
+	GasLimit   uint64              `json:"gasLimit"   gencodec:"required"`
+	Difficulty *big.Int            `json:"difficulty" gencodec:"required"`
+	Mixhash    common.Hash         `json:"mixHash"`
+	Coinbase   common.Address      `json:"coinbase"`
+	Alloc      GenesisAlloc        `json:"alloc"      gencodec:"required"`
 
 	// These fields are used for consensus tests. Please don't use them
 	// in actual genesis blocks.
@@ -156,7 +150,7 @@ func (e *GenesisMismatchError) Error() string {
 // error is a *params.ConfigCompatError and the new, unwritten config is returned.
 //
 // The returned chain configuration is never nil.
-func SetupGenesisBlock(db mandb.Database, genesis *Genesis) (*params.ChainConfig, common.Hash, error) {
+func SetupGenesisBlock(db ethdb.Database, genesis *Genesis) (*params.ChainConfig, common.Hash, error) {
 	if genesis != nil && genesis.Config == nil {
 		return params.AllEthashProtocolChanges, common.Hash{}, errGenesisNoConfig
 	}
@@ -226,9 +220,9 @@ func (g *Genesis) configOrDefault(ghash common.Hash) *params.ChainConfig {
 
 // ToBlock creates the genesis block and writes state of a genesis specification
 // to the given database (or discards it if nil).
-func (g *Genesis) ToBlock(db mandb.Database) *types.Block {
+func (g *Genesis) ToBlock(db ethdb.Database) *types.Block {
 	if db == nil {
-		db = mandb.NewMemDatabase()
+		db = ethdb.NewMemDatabase()
 	}
 	statedb, _ := state.New(common.Hash{}, state.NewDatabase(db))
 	for addr, account := range g.Alloc {
@@ -241,22 +235,17 @@ func (g *Genesis) ToBlock(db mandb.Database) *types.Block {
 	}
 	root := statedb.IntermediateRoot(false)
 	head := &types.Header{
-		Number:      new(big.Int).SetUint64(g.Number),
-		Nonce:       types.EncodeNonce(g.Nonce),
-		Time:        new(big.Int).SetUint64(g.Timestamp),
-		ParentHash:  g.ParentHash,
-		Extra:       g.ExtraData,
-		Version:     g.Version,
-		Elect:       g.Elect,
-		NetTopology: g.NetTopology,
-		Signatures:  g.Signatures,
-		Leader:      g.Leader,
-		GasLimit:    g.GasLimit,
-		GasUsed:     g.GasUsed,
-		Difficulty:  g.Difficulty,
-		MixDigest:   g.Mixhash,
-		Coinbase:    g.Coinbase,
-		Root:        root,
+		Number:     new(big.Int).SetUint64(g.Number),
+		Nonce:      types.EncodeNonce(g.Nonce),
+		Time:       new(big.Int).SetUint64(g.Timestamp),
+		ParentHash: g.ParentHash,
+		Extra:      g.ExtraData,
+		GasLimit:   g.GasLimit,
+		GasUsed:    g.GasUsed,
+		Difficulty: g.Difficulty,
+		MixDigest:  g.Mixhash,
+		Coinbase:   g.Coinbase,
+		Root:       root,
 	}
 	if g.GasLimit == 0 {
 		head.GasLimit = params.GenesisGasLimit
@@ -272,7 +261,7 @@ func (g *Genesis) ToBlock(db mandb.Database) *types.Block {
 
 // Commit writes the block and state of a genesis specification to the database.
 // The block is committed as the canonical head block.
-func (g *Genesis) Commit(db mandb.Database) (*types.Block, error) {
+func (g *Genesis) Commit(db ethdb.Database) (*types.Block, error) {
 	block := g.ToBlock(db)
 	if block.Number().Sign() != 0 {
 		return nil, fmt.Errorf("can't commit genesis block with number > 0")
@@ -294,7 +283,7 @@ func (g *Genesis) Commit(db mandb.Database) (*types.Block, error) {
 
 // MustCommit writes the genesis block and state to db, panicking on error.
 // The block is committed as the canonical head block.
-func (g *Genesis) MustCommit(db mandb.Database) *types.Block {
+func (g *Genesis) MustCommit(db ethdb.Database) *types.Block {
 	block, err := g.Commit(db)
 	if err != nil {
 		panic(err)
@@ -303,12 +292,12 @@ func (g *Genesis) MustCommit(db mandb.Database) *types.Block {
 }
 
 // GenesisBlockForTesting creates and writes a block in which addr has the given wei balance.
-func GenesisBlockForTesting(db mandb.Database, addr common.Address, balance *big.Int) *types.Block {
+func GenesisBlockForTesting(db ethdb.Database, addr common.Address, balance *big.Int) *types.Block {
 	g := Genesis{Alloc: GenesisAlloc{addr: {Balance: balance}}}
 	return g.MustCommit(db)
 }
 
-// DefaultGenesisBlock returns the Matrix main net genesis block.
+// DefaultGenesisBlock returns the Ethereum main net genesis block.
 func DefaultGenesisBlock() *Genesis {
 	return &Genesis{
 		Config:     params.MainnetChainConfig,
@@ -344,21 +333,19 @@ func DefaultRinkebyGenesisBlock() *Genesis {
 	}
 }
 
-// DeveloperGenesisBlock returns the 'gman --dev' genesis block. Note, this must
+// DeveloperGenesisBlock returns the 'geth --dev' genesis block. Note, this must
 // be seeded with the
 func DeveloperGenesisBlock(period uint64, faucet common.Address) *Genesis {
 	// Override the default period to the user requested one
 	config := *params.AllCliqueProtocolChanges
-	//config.Clique.Period = period
-	//todo 把clique设为空，默认启动ethash引擎挖矿
-	config.Clique = nil
+	config.Clique.Period = period
 
 	// Assemble and return the genesis with the precompiles and faucet pre-funded
 	return &Genesis{
 		Config:     &config,
 		ExtraData:  append(append(make([]byte, 32), faucet[:]...), make([]byte, 65)...),
 		GasLimit:   6283185,
-		Difficulty: big.NewInt(1000000),
+		Difficulty: big.NewInt(1),
 		Alloc: map[common.Address]GenesisAccount{
 			common.BytesToAddress([]byte{1}): {Balance: big.NewInt(1)}, // ECRecover
 			common.BytesToAddress([]byte{2}): {Balance: big.NewInt(1)}, // SHA256
@@ -368,7 +355,7 @@ func DeveloperGenesisBlock(period uint64, faucet common.Address) *Genesis {
 			common.BytesToAddress([]byte{6}): {Balance: big.NewInt(1)}, // ECAdd
 			common.BytesToAddress([]byte{7}): {Balance: big.NewInt(1)}, // ECScalarMul
 			common.BytesToAddress([]byte{8}): {Balance: big.NewInt(1)}, // ECPairing
-			faucet: {Balance: new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(9))},
+			faucet:                           {Balance: new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(9))},
 		},
 	}
 }

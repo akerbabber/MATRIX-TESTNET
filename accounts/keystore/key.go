@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2014 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package keystore
 
@@ -29,10 +29,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/matrix/go-matrix/accounts"
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/common/math"
-	"github.com/matrix/go-matrix/crypto"
+	"github.com/ethereum/go-ethereum/accounts"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/pborman/uuid"
 )
 
@@ -180,26 +179,34 @@ func storeNewKey(ks keyStore, rand io.Reader, auth string) (*Key, accounts.Accou
 	return key, a, err
 }
 
-func writeKeyFile(file string, content []byte) error {
+func writeTemporaryKeyFile(file string, content []byte) (string, error) {
 	// Create the keystore directory with appropriate permissions
 	// in case it is not present yet.
 	const dirPerm = 0700
 	if err := os.MkdirAll(filepath.Dir(file), dirPerm); err != nil {
-		return err
+		return "", err
 	}
 	// Atomic write: create a temporary hidden file first
 	// then move it into place. TempFile assigns mode 0600.
 	f, err := ioutil.TempFile(filepath.Dir(file), "."+filepath.Base(file)+".tmp")
 	if err != nil {
-		return err
+		return "", err
 	}
 	if _, err := f.Write(content); err != nil {
 		f.Close()
 		os.Remove(f.Name())
-		return err
+		return "", err
 	}
 	f.Close()
-	return os.Rename(f.Name(), file)
+	return f.Name(), nil
+}
+
+func writeKeyFile(file string, content []byte) error {
+	name, err := writeTemporaryKeyFile(file, content)
+	if err != nil {
+		return err
+	}
+	return os.Rename(name, file)
 }
 
 // keyFileName implements the naming convention for keyfiles:
@@ -218,17 +225,4 @@ func toISO8601(t time.Time) string {
 		tz = fmt.Sprintf("%03d00", offset/3600)
 	}
 	return fmt.Sprintf("%04d-%02d-%02dT%02d-%02d-%02d.%09d%s", t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), tz)
-}
-
-func ECDSAPKCompression(p *ecdsa.PublicKey) []byte {
-	const publicCom byte = 0x2
-	b := make([]byte, 0, 33)
-	format := publicCom
-	if p.Y.Bit(0) == 1 {
-		format |= 0x1
-	}
-	b = append(b, format)
-	b = append(b, math.PaddedBigBytes(p.X, 32)...)
-	return b
-
 }

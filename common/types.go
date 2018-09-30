@@ -1,22 +1,23 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2015 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package common
 
 import (
+	"database/sql/driver"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -25,16 +26,16 @@ import (
 	"reflect"
 	"strings"
 
-	"bytes"
-
-	"github.com/matrix/go-matrix/common/hexutil"
-	"github.com/matrix/go-matrix/crypto/sha3"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/crypto/sha3"
 )
 
+// Lengths of hashes and addresses in bytes.
 const (
-	HashLength      = 32
-	AddressLength   = 20
-	SignatureLength = 65
+	// HashLength is the expected length of the hash
+	HashLength = 32
+	// AddressLength is the expected length of the address
+	AddressLength = 20
 )
 
 var (
@@ -45,20 +46,30 @@ var (
 // Hash represents the 32 byte Keccak256 hash of arbitrary data.
 type Hash [HashLength]byte
 
+// BytesToHash sets b to hash.
+// If b is larger than len(h), b will be cropped from the left.
 func BytesToHash(b []byte) Hash {
 	var h Hash
 	h.SetBytes(b)
 	return h
 }
 
+// BigToHash sets byte representation of b to hash.
+// If b is larger than len(h), b will be cropped from the left.
 func BigToHash(b *big.Int) Hash { return BytesToHash(b.Bytes()) }
-func HexToHash(s string) Hash   { return BytesToHash(FromHex(s)) }
 
-// Get the string representation of the underlying hash
-func (h Hash) Str() string   { return string(h[:]) }
+// HexToHash sets byte representation of s to hash.
+// If b is larger than len(h), b will be cropped from the left.
+func HexToHash(s string) Hash { return BytesToHash(FromHex(s)) }
+
+// Bytes gets the byte representation of the underlying hash.
 func (h Hash) Bytes() []byte { return h[:] }
+
+// Big converts a hash to a big integer.
 func (h Hash) Big() *big.Int { return new(big.Int).SetBytes(h[:]) }
-func (h Hash) Hex() string   { return hexutil.Encode(h[:]) }
+
+// Hex converts a hash to a hex string.
+func (h Hash) Hex() string { return hexutil.Encode(h[:]) }
 
 // TerminalString implements log.TerminalStringer, formatting a string for console
 // output during logging.
@@ -93,23 +104,14 @@ func (h Hash) MarshalText() ([]byte, error) {
 	return hexutil.Bytes(h[:]).MarshalText()
 }
 
-// Sets the hash to the value of b. If b is larger than len(h), 'b' will be cropped (from the left).
+// SetBytes sets the hash to the value of b.
+// If b is larger than len(h), b will be cropped from the left.
 func (h *Hash) SetBytes(b []byte) {
 	if len(b) > len(h) {
 		b = b[len(b)-HashLength:]
 	}
 
 	copy(h[HashLength-len(b):], b)
-}
-
-// Set string `s` to h. If s is larger than len(h) s will be cropped (from left) to fit.
-func (h *Hash) SetString(s string) { h.SetBytes([]byte(s)) }
-
-// Sets h to other
-func (h *Hash) Set(other Hash) {
-	for i, v := range other {
-		h[i] = v
-	}
 }
 
 // Generate implements testing/quick.Generator.
@@ -121,12 +123,22 @@ func (h Hash) Generate(rand *rand.Rand, size int) reflect.Value {
 	return reflect.ValueOf(h)
 }
 
-func (h Hash) Equal(other Hash) bool {
-	return bytes.Equal(h[:], other[:])
+// Scan implements Scanner for database/sql.
+func (h *Hash) Scan(src interface{}) error {
+	srcB, ok := src.([]byte)
+	if !ok {
+		return fmt.Errorf("can't scan %T into Hash", src)
+	}
+	if len(srcB) != HashLength {
+		return fmt.Errorf("can't scan []byte of len %d into Hash, want %d", len(srcB), HashLength)
+	}
+	copy(h[:], srcB)
+	return nil
 }
 
-func EmptyHash(h Hash) bool {
-	return h == Hash{}
+// Value implements valuer for database/sql.
+func (h Hash) Value() (driver.Value, error) {
+	return h[:], nil
 }
 
 // UnprefixedHash allows marshaling a Hash without 0x prefix.
@@ -144,19 +156,27 @@ func (h UnprefixedHash) MarshalText() ([]byte, error) {
 
 /////////// Address
 
-// Address represents the 20 byte address of an Matrix account.
+// Address represents the 20 byte address of an Ethereum account.
 type Address [AddressLength]byte
 
+// BytesToAddress returns Address with value b.
+// If b is larger than len(h), b will be cropped from the left.
 func BytesToAddress(b []byte) Address {
 	var a Address
 	a.SetBytes(b)
 	return a
 }
+
+// BigToAddress returns Address with byte values of b.
+// If b is larger than len(h), b will be cropped from the left.
 func BigToAddress(b *big.Int) Address { return BytesToAddress(b.Bytes()) }
-func HexToAddress(s string) Address   { return BytesToAddress(FromHex(s)) }
+
+// HexToAddress returns Address with byte values of s.
+// If s is larger than len(h), s will be cropped from the left.
+func HexToAddress(s string) Address { return BytesToAddress(FromHex(s)) }
 
 // IsHexAddress verifies whether a string can represent a valid hex-encoded
-// Matrix address or not.
+// Ethereum address or not.
 func IsHexAddress(s string) bool {
 	if hasHexPrefix(s) {
 		s = s[2:]
@@ -164,15 +184,14 @@ func IsHexAddress(s string) bool {
 	return len(s) == 2*AddressLength && isHex(s)
 }
 
-// Get the string representation of the underlying address
-func (a Address) Str() string   { return string(a[:]) }
+// Bytes gets the string representation of the underlying address.
 func (a Address) Bytes() []byte { return a[:] }
-func (a Address) Big() *big.Int { return new(big.Int).SetBytes(a[:]) }
-func (a Address) Hash() Hash    { return BytesToHash(a[:]) }
 
-func (a Address) Equal(other Address) bool {
-	return bytes.Equal(a[:], other[:])
-}
+// Big converts an address to a big integer.
+func (a Address) Big() *big.Int { return new(big.Int).SetBytes(a[:]) }
+
+// Hash converts an address to a hash by left-padding it with zeros.
+func (a Address) Hash() Hash { return BytesToHash(a[:]) }
 
 // Hex returns an EIP55-compliant hex string representation of the address.
 func (a Address) Hex() string {
@@ -196,7 +215,7 @@ func (a Address) Hex() string {
 	return "0x" + string(result)
 }
 
-// String implements the stringer interface and is used also by the logger.
+// String implements fmt.Stringer.
 func (a Address) String() string {
 	return a.Hex()
 }
@@ -207,22 +226,13 @@ func (a Address) Format(s fmt.State, c rune) {
 	fmt.Fprintf(s, "%"+string(c), a[:])
 }
 
-// Sets the address to the value of b. If b is larger than len(a) it will panic
+// SetBytes sets the address to the value of b.
+// If b is larger than len(a) it will panic.
 func (a *Address) SetBytes(b []byte) {
 	if len(b) > len(a) {
 		b = b[len(b)-AddressLength:]
 	}
 	copy(a[AddressLength-len(b):], b)
-}
-
-// Set string `s` to a. If s is larger than len(a) it will panic
-func (a *Address) SetString(s string) { a.SetBytes([]byte(s)) }
-
-// Sets a to other
-func (a *Address) Set(other Address) {
-	for i, v := range other {
-		a[i] = v
-	}
 }
 
 // MarshalText returns the hex representation of a.
@@ -240,7 +250,25 @@ func (a *Address) UnmarshalJSON(input []byte) error {
 	return hexutil.UnmarshalFixedJSON(addressT, input, a[:])
 }
 
-// UnprefixedHash allows marshaling an Address without 0x prefix.
+// Scan implements Scanner for database/sql.
+func (a *Address) Scan(src interface{}) error {
+	srcB, ok := src.([]byte)
+	if !ok {
+		return fmt.Errorf("can't scan %T into Address", src)
+	}
+	if len(srcB) != AddressLength {
+		return fmt.Errorf("can't scan []byte of len %d into Address, want %d", len(srcB), AddressLength)
+	}
+	copy(a[:], srcB)
+	return nil
+}
+
+// Value implements valuer for database/sql.
+func (a Address) Value() (driver.Value, error) {
+	return a[:], nil
+}
+
+// UnprefixedAddress allows marshaling an Address without 0x prefix.
 type UnprefixedAddress Address
 
 // UnmarshalText decodes the address from hex. The 0x prefix is optional.
@@ -311,65 +339,4 @@ func (ma *MixedcaseAddress) ValidChecksum() bool {
 // Original returns the mixed-case input string
 func (ma *MixedcaseAddress) Original() string {
 	return ma.original
-}
-
-/////////// Signature
-type Signature [SignatureLength]byte
-
-func BytesToSignature(b []byte) Signature {
-	var s Signature
-	s.SetBytes(b)
-	return s
-}
-
-func (s Signature) Str() string   { return string(s[:]) }
-func (s Signature) Bytes() []byte { return s[:] }
-
-func (s *Signature) SetBytes(b []byte) {
-	if len(b) > len(s) {
-		b = b[len(b)-SignatureLength:]
-	}
-
-	copy(s[SignatureLength-len(b):], b)
-}
-
-// Sets h to other
-func (h *Signature) Set(other Signature) {
-	for i, v := range other {
-		h[i] = v
-	}
-}
-
-type VerifiedSign struct {
-	Sign     Signature
-	Account  Address
-	Validate bool
-	Stock    uint16
-}
-
-//
-type Elect struct {
-	Account Address
-	Stock   uint16
-	Type    ElectRoleType
-}
-
-const (
-	PosOffline uint16 = 0xF000
-	PosOnline  uint16 = 0xF001
-)
-
-type NetTopologyData struct {
-	Account  Address
-	Position uint16
-}
-
-const (
-	NetTopoTypeAll    uint8 = 0
-	NetTopoTypeChange uint8 = 1
-)
-
-type NetTopology struct {
-	Type            uint8
-	NetTopologyData []NetTopologyData
 }

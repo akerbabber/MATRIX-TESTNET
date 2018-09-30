@@ -1,21 +1,21 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 // Package light implements on-demand retrieval capable state and chain objects
-// for the Matrix Light Client.
+// for the Ethereum Light Client.
 package les
 
 import (
@@ -26,7 +26,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/matrix/go-matrix/common/mclock"
+	"github.com/ethereum/go-ethereum/common/mclock"
+	"github.com/ethereum/go-ethereum/light"
 )
 
 var (
@@ -69,9 +70,9 @@ type sentReq struct {
 	lock   sync.RWMutex // protect access to sentTo map
 	sentTo map[distPeer]sentReqToPeer
 
-	reqQueued    bool // a request has been queued but not sent
-	reqSent      bool // a request has been sent but not timed out
-	reqSrtoCount int  // number of requests that reached soft (but not hard) timeout
+	lastReqQueued bool     // last request has been queued but not sent
+	lastReqSentTo distPeer // if not nil then last request has been sent to given peer but not timed out
+	reqSrtoCount  int      // number of requests that reached soft (but not hard) timeout
 }
 
 // sentReqToPeer notifies the request-from-peer goroutine (tryRequest) about a response
@@ -180,7 +181,7 @@ type reqStateFn func() reqStateFn
 // retrieveLoop is the retrieval state machine event loop
 func (r *sentReq) retrieveLoop() {
 	go r.tryRequest()
-	r.reqQueued = true
+	r.lastReqQueued = true
 	state := r.stateRequesting
 
 	for state != nil {
@@ -207,14 +208,21 @@ func (r *sentReq) stateRequesting() reqStateFn {
 					return r.stateNoMorePeers
 				}
 				// nothing to wait for, no more peers to ask, return with error
-				r.stop(ErrNoPeers)
+				r.stop(light.ErrNoPeers)
 				// no need to go to stopped state because waiting() already returned false
 				return nil
 			}
 		case rpSoftTimeout:
 			// last request timed out, try asking a new peer
 			go r.tryRequest()
-			r.reqQueued = true
+			r.lastReqQueued = true
+			return r.stateRequesting
+		case rpDeliveredInvalid:
+			// if it was the last sent request (set to nil by update) then start a new one
+			if !r.lastReqQueued && r.lastReqSentTo == nil {
+				go r.tryRequest()
+				r.lastReqQueued = true
+			}
 			return r.stateRequesting
 		case rpDeliveredValid:
 			r.stop(nil)
@@ -233,7 +241,7 @@ func (r *sentReq) stateNoMorePeers() reqStateFn {
 	select {
 	case <-time.After(retryQueue):
 		go r.tryRequest()
-		r.reqQueued = true
+		r.lastReqQueued = true
 		return r.stateRequesting
 	case ev := <-r.eventsCh:
 		r.update(ev)
@@ -241,7 +249,11 @@ func (r *sentReq) stateNoMorePeers() reqStateFn {
 			r.stop(nil)
 			return r.stateStopped
 		}
-		return r.stateNoMorePeers
+		if r.waiting() {
+			return r.stateNoMorePeers
+		}
+		r.stop(light.ErrNoPeers)
+		return nil
 	case <-r.stopCh:
 		return r.stateStopped
 	}
@@ -260,22 +272,26 @@ func (r *sentReq) stateStopped() reqStateFn {
 func (r *sentReq) update(ev reqPeerEvent) {
 	switch ev.event {
 	case rpSent:
-		r.reqQueued = false
-		if ev.peer != nil {
-			r.reqSent = true
-		}
+		r.lastReqQueued = false
+		r.lastReqSentTo = ev.peer
 	case rpSoftTimeout:
-		r.reqSent = false
+		r.lastReqSentTo = nil
 		r.reqSrtoCount++
-	case rpHardTimeout, rpDeliveredValid, rpDeliveredInvalid:
+	case rpHardTimeout:
 		r.reqSrtoCount--
+	case rpDeliveredValid, rpDeliveredInvalid:
+		if ev.peer == r.lastReqSentTo {
+			r.lastReqSentTo = nil
+		} else {
+			r.reqSrtoCount--
+		}
 	}
 }
 
 // waiting returns true if the retrieval mechanism is waiting for an answer from
 // any peer
 func (r *sentReq) waiting() bool {
-	return r.reqQueued || r.reqSent || r.reqSrtoCount > 0
+	return r.lastReqQueued || r.lastReqSentTo != nil || r.reqSrtoCount > 0
 }
 
 // tryRequest tries to send the request to a new peer and waits for it to either

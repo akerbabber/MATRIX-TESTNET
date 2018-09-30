@@ -1,27 +1,23 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
-//
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
-//
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 package runewidth
+
+import "os"
 
 var (
 	// EastAsianWidth will be set true if the current locale is CJK
-	EastAsianWidth = IsEastAsian()
+	EastAsianWidth bool
 
 	// DefaultCondition is a condition in current locale
 	DefaultCondition = &Condition{EastAsianWidth}
 )
+
+func init() {
+	env := os.Getenv("RUNEWIDTH_EASTASIAN")
+	if env == "" {
+		EastAsianWidth = IsEastAsian()
+	} else {
+		EastAsianWidth = env == "1"
+	}
+}
 
 type interval struct {
 	first rune
@@ -70,6 +66,7 @@ var private = table{
 var nonprint = table{
 	{0x0000, 0x001F}, {0x007F, 0x009F}, {0x00AD, 0x00AD},
 	{0x070F, 0x070F}, {0x180B, 0x180E}, {0x200B, 0x200F},
+	{0x2028, 0x2029},
 	{0x202A, 0x202E}, {0x206A, 0x206F}, {0xD800, 0xDFFF},
 	{0xFEFF, 0xFEFF}, {0xFFF9, 0xFFFB}, {0xFFFE, 0xFFFF},
 }

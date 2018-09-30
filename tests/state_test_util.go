@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2015 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package tests
 
@@ -23,22 +23,22 @@ import (
 	"math/big"
 	"strings"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/common/hexutil"
-	"github.com/matrix/go-matrix/common/math"
-	"github.com/matrix/go-matrix/core"
-	"github.com/matrix/go-matrix/core/state"
-	"github.com/matrix/go-matrix/core/types"
-	"github.com/matrix/go-matrix/core/vm"
-	"github.com/matrix/go-matrix/crypto"
-	"github.com/matrix/go-matrix/crypto/sha3"
-	"github.com/matrix/go-matrix/mandb"
-	"github.com/matrix/go-matrix/params"
-	"github.com/matrix/go-matrix/rlp"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/common/math"
+	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/state"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/crypto/sha3"
+	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/params"
+	"github.com/ethereum/go-ethereum/rlp"
 )
 
 // StateTest checks transaction processing without block context.
-// See https://github.com/matrix/EIPs/issues/176 for the test format specification.
+// See https://github.com/ethereum/EIPs/issues/176 for the test format specification.
 type StateTest struct {
 	json stJSON
 }
@@ -126,7 +126,7 @@ func (t *StateTest) Run(subtest StateSubtest, vmconfig vm.Config) (*state.StateD
 		return nil, UnsupportedForkError{subtest.Fork}
 	}
 	block := t.genesis(config).ToBlock(nil)
-	statedb := MakePreState(mandb.NewMemDatabase(), t.json.Pre)
+	statedb := MakePreState(ethdb.NewMemDatabase(), t.json.Pre)
 
 	post := t.json.Post[subtest.Fork][subtest.Index]
 	msg, err := t.json.Tx.toMessage(post)
@@ -146,7 +146,18 @@ func (t *StateTest) Run(subtest StateSubtest, vmconfig vm.Config) (*state.StateD
 	if logs := rlpHash(statedb.Logs()); logs != common.Hash(post.Logs) {
 		return statedb, fmt.Errorf("post state logs hash mismatch: got %x, want %x", logs, post.Logs)
 	}
-	root, _ := statedb.Commit(config.IsEIP158(block.Number()))
+	// Commit block
+	statedb.Commit(config.IsEIP158(block.Number()))
+	// Add 0-value mining reward. This only makes a difference in the cases
+	// where
+	// - the coinbase suicided, or
+	// - there are only 'bad' transactions, which aren't executed. In those cases,
+	//   the coinbase gets no txfee, so isn't created, and thus needs to be touched
+	statedb.AddBalance(block.Coinbase(), new(big.Int))
+	// And _now_ get the state root
+	root := statedb.IntermediateRoot(config.IsEIP158(block.Number()))
+	// N.B: We need to do this in a two-step process, because the first Commit takes care
+	// of suicides, and we need to touch the coinbase _after_ it has potentially suicided.
 	if root != common.Hash(post.Root) {
 		return statedb, fmt.Errorf("post state root mismatch: got %x, want %x", root, post.Root)
 	}
@@ -157,7 +168,7 @@ func (t *StateTest) gasLimit(subtest StateSubtest) uint64 {
 	return t.json.Tx.GasLimit[t.json.Post[subtest.Fork][subtest.Index].Indexes.Gas]
 }
 
-func MakePreState(db mandb.Database, accounts core.GenesisAlloc) *state.StateDB {
+func MakePreState(db ethdb.Database, accounts core.GenesisAlloc) *state.StateDB {
 	sdb := state.NewDatabase(db)
 	statedb, _ := state.New(common.Hash{}, sdb)
 	for addr, a := range accounts {
@@ -218,7 +229,7 @@ func (tx *stTransaction) toMessage(ps stPostState) (core.Message, error) {
 	dataHex := tx.Data[ps.Indexes.Data]
 	valueHex := tx.Value[ps.Indexes.Value]
 	gasLimit := tx.GasLimit[ps.Indexes.Gas]
-	// Value, Data hex encoding is messy: https://github.com/matrix/tests/issues/203
+	// Value, Data hex encoding is messy: https://github.com/ethereum/tests/issues/203
 	value := new(big.Int)
 	if valueHex != "0x" {
 		v, ok := math.ParseBig256(valueHex)

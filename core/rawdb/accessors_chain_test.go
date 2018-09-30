@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2018 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package rawdb
 
@@ -21,16 +21,16 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/core/types"
-	"github.com/matrix/go-matrix/crypto/sha3"
-	"github.com/matrix/go-matrix/mandb"
-	"github.com/matrix/go-matrix/rlp"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto/sha3"
+	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/rlp"
 )
 
 // Tests block header storage and retrieval operations.
 func TestHeaderStorage(t *testing.T) {
-	db := mandb.NewMemDatabase()
+	db := ethdb.NewMemDatabase()
 
 	// Create a test header to move around the database and make sure it's really new
 	header := &types.Header{Number: big.NewInt(42), Extra: []byte("test header")}
@@ -63,7 +63,7 @@ func TestHeaderStorage(t *testing.T) {
 
 // Tests block body storage and retrieval operations.
 func TestBodyStorage(t *testing.T) {
-	db := mandb.NewMemDatabase()
+	db := ethdb.NewMemDatabase()
 
 	// Create a test body to move around the database and make sure it's really new
 	body := &types.Body{Uncles: []*types.Header{{Extra: []byte("test header")}}}
@@ -101,7 +101,7 @@ func TestBodyStorage(t *testing.T) {
 
 // Tests block storage and retrieval operations.
 func TestBlockStorage(t *testing.T) {
-	db := mandb.NewMemDatabase()
+	db := ethdb.NewMemDatabase()
 
 	// Create a test block to move around the database and make sure it's really new
 	block := types.NewBlockWithHeader(&types.Header{
@@ -151,7 +151,7 @@ func TestBlockStorage(t *testing.T) {
 
 // Tests that partial block contents don't get reassembled into full blocks.
 func TestPartialBlockStorage(t *testing.T) {
-	db := mandb.NewMemDatabase()
+	db := ethdb.NewMemDatabase()
 	block := types.NewBlockWithHeader(&types.Header{
 		Extra:       []byte("test block"),
 		UncleHash:   types.EmptyUncleHash,
@@ -185,7 +185,7 @@ func TestPartialBlockStorage(t *testing.T) {
 
 // Tests block total difficulty storage and retrieval operations.
 func TestTdStorage(t *testing.T) {
-	db := mandb.NewMemDatabase()
+	db := ethdb.NewMemDatabase()
 
 	// Create a test TD to move around the database and make sure it's really new
 	hash, td := common.Hash{}, big.NewInt(314)
@@ -208,7 +208,7 @@ func TestTdStorage(t *testing.T) {
 
 // Tests that canonical numbers can be mapped to hashes and retrieved.
 func TestCanonicalMappingStorage(t *testing.T) {
-	db := mandb.NewMemDatabase()
+	db := ethdb.NewMemDatabase()
 
 	// Create a test canonical number and assinged hash to move around
 	hash, number := common.Hash{0: 0xff}, uint64(314)
@@ -231,7 +231,7 @@ func TestCanonicalMappingStorage(t *testing.T) {
 
 // Tests that head headers and head blocks can be assigned, individually.
 func TestHeadStorage(t *testing.T) {
-	db := mandb.NewMemDatabase()
+	db := ethdb.NewMemDatabase()
 
 	blockHead := types.NewBlockWithHeader(&types.Header{Extra: []byte("test block header")})
 	blockFull := types.NewBlockWithHeader(&types.Header{Extra: []byte("test block full")})
@@ -266,7 +266,7 @@ func TestHeadStorage(t *testing.T) {
 
 // Tests that receipts associated with a single block can be stored and retrieved.
 func TestBlockReceiptStorage(t *testing.T) {
-	db := mandb.NewMemDatabase()
+	db := ethdb.NewMemDatabase()
 
 	receipt1 := &types.Receipt{
 		Status:            types.ReceiptStatusFailed,

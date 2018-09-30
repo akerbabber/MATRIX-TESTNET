@@ -1,23 +1,24 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package api
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -26,27 +27,28 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/log"
-	"github.com/matrix/go-matrix/swarm/storage"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/swarm/log"
+	"github.com/ethereum/go-ethereum/swarm/storage"
 )
 
 const maxParallelFiles = 5
 
 type FileSystem struct {
-	api *Api
+	api *API
 }
 
-func NewFileSystem(api *Api) *FileSystem {
+func NewFileSystem(api *API) *FileSystem {
 	return &FileSystem{api}
 }
 
 // Upload replicates a local directory as a manifest file and uploads it
-// using dpa store
+// using FileStore store
+// This function waits the chunks to be stored.
 // TODO: localpath should point to a manifest
 //
 // DEPRECATED: Use the HTTP API instead
-func (self *FileSystem) Upload(lpath, index string) (string, error) {
+func (fs *FileSystem) Upload(lpath, index string, toEncrypt bool) (string, error) {
 	var list []*manifestTrieEntry
 	localpath, err := filepath.Abs(filepath.Clean(lpath))
 	if err != nil {
@@ -111,13 +113,14 @@ func (self *FileSystem) Upload(lpath, index string) (string, error) {
 			f, err := os.Open(entry.Path)
 			if err == nil {
 				stat, _ := f.Stat()
-				var hash storage.Key
-				wg := &sync.WaitGroup{}
-				hash, err = self.api.dpa.Store(f, stat.Size(), wg, nil)
+				var hash storage.Address
+				var wait func(context.Context) error
+				ctx := context.TODO()
+				hash, wait, err = fs.api.fileStore.Store(ctx, f, stat.Size(), toEncrypt)
 				if hash != nil {
-					list[i].Hash = hash.String()
+					list[i].Hash = hash.Hex()
 				}
-				wg.Wait()
+				err = wait(ctx)
 				awg.Done()
 				if err == nil {
 					first512 := make([]byte, 512)
@@ -142,7 +145,7 @@ func (self *FileSystem) Upload(lpath, index string) (string, error) {
 	}
 
 	trie := &manifestTrie{
-		dpa: self.api.dpa,
+		fileStore: fs.api.fileStore,
 	}
 	quitC := make(chan bool)
 	for i, entry := range list {
@@ -163,7 +166,7 @@ func (self *FileSystem) Upload(lpath, index string) (string, error) {
 	err2 := trie.recalcAndStore()
 	var hs string
 	if err2 == nil {
-		hs = trie.hash.String()
+		hs = trie.ref.Hex()
 	}
 	awg.Wait()
 	return hs, err2
@@ -173,7 +176,7 @@ func (self *FileSystem) Upload(lpath, index string) (string, error) {
 // under localpath
 //
 // DEPRECATED: Use the HTTP API instead
-func (self *FileSystem) Download(bzzpath, localpath string) error {
+func (fs *FileSystem) Download(bzzpath, localpath string) error {
 	lpath, err := filepath.Abs(filepath.Clean(localpath))
 	if err != nil {
 		return err
@@ -188,7 +191,7 @@ func (self *FileSystem) Download(bzzpath, localpath string) error {
 	if err != nil {
 		return err
 	}
-	key, err := self.api.Resolve(uri)
+	addr, err := fs.api.Resolve(context.TODO(), uri.Addr)
 	if err != nil {
 		return err
 	}
@@ -199,14 +202,14 @@ func (self *FileSystem) Download(bzzpath, localpath string) error {
 	}
 
 	quitC := make(chan bool)
-	trie, err := loadManifest(self.api.dpa, key, quitC)
+	trie, err := loadManifest(context.TODO(), fs.api.fileStore, addr, quitC, NOOPDecrypt)
 	if err != nil {
 		log.Warn(fmt.Sprintf("fs.Download: loadManifestTrie error: %v", err))
 		return err
 	}
 
 	type downloadListEntry struct {
-		key  storage.Key
+		addr storage.Address
 		path string
 	}
 
@@ -217,7 +220,7 @@ func (self *FileSystem) Download(bzzpath, localpath string) error {
 	err = trie.listWithPrefix(path, quitC, func(entry *manifestTrieEntry, suffix string) {
 		log.Trace(fmt.Sprintf("fs.Download: %#v", entry))
 
-		key = common.Hex2Bytes(entry.Hash)
+		addr = common.Hex2Bytes(entry.Hash)
 		path := lpath + "/" + suffix
 		dir := filepath.Dir(path)
 		if dir != prevPath {
@@ -225,7 +228,7 @@ func (self *FileSystem) Download(bzzpath, localpath string) error {
 			prevPath = dir
 		}
 		if (mde == nil) && (path != dir+"/") {
-			list = append(list, &downloadListEntry{key: key, path: path})
+			list = append(list, &downloadListEntry{addr: addr, path: path})
 		}
 	})
 	if err != nil {
@@ -244,7 +247,7 @@ func (self *FileSystem) Download(bzzpath, localpath string) error {
 		}
 		go func(i int, entry *downloadListEntry) {
 			defer wg.Done()
-			err := retrieveToFile(quitC, self.api.dpa, entry.key, entry.path)
+			err := retrieveToFile(quitC, fs.api.fileStore, entry.addr, entry.path)
 			if err != nil {
 				select {
 				case errC <- err:
@@ -267,14 +270,14 @@ func (self *FileSystem) Download(bzzpath, localpath string) error {
 	}
 }
 
-func retrieveToFile(quitC chan bool, dpa *storage.DPA, key storage.Key, path string) error {
+func retrieveToFile(quitC chan bool, fileStore *storage.FileStore, addr storage.Address, path string) error {
 	f, err := os.Create(path) // TODO: basePath separators
 	if err != nil {
 		return err
 	}
-	reader := dpa.Retrieve(key)
+	reader, _ := fileStore.Retrieve(context.TODO(), addr)
 	writer := bufio.NewWriter(f)
-	size, err := reader.Size(quitC)
+	size, err := reader.Size(context.TODO(), quitC)
 	if err != nil {
 		return err
 	}

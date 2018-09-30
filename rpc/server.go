@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2015 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package rpc
 
@@ -25,8 +25,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/matrix/go-matrix/log"
-	"gopkg.in/fatih/set.v0"
+	mapset "github.com/deckarep/golang-set"
+	"github.com/ethereum/go-ethereum/log"
 )
 
 const MetadataApi = "rpc"
@@ -46,7 +46,7 @@ const (
 func NewServer() *Server {
 	server := &Server{
 		services: make(serviceRegistry),
-		codecs:   set.New(),
+		codecs:   mapset.NewSet(),
 		run:      1,
 	}
 
@@ -94,11 +94,12 @@ func (s *Server) RegisterName(name string, rcvr interface{}) error {
 
 	methods, subscriptions := suitableCallbacks(rcvrVal, svc.typ)
 
-	// already a previous service register under given sname, merge methods/subscriptions
+	if len(methods) == 0 && len(subscriptions) == 0 {
+		return fmt.Errorf("Service %T doesn't have any suitable methods/subscriptions to expose", rcvr)
+	}
+
+	// already a previous service register under given name, merge methods/subscriptions
 	if regsvc, present := s.services[name]; present {
-		if len(methods) == 0 && len(subscriptions) == 0 {
-			return fmt.Errorf("Service %T doesn't have any suitable methods/subscriptions to expose", rcvr)
-		}
 		for _, m := range methods {
 			regsvc.callbacks[formatName(m.method.Name)] = m
 		}
@@ -110,10 +111,6 @@ func (s *Server) RegisterName(name string, rcvr interface{}) error {
 
 	svc.name = name
 	svc.callbacks, svc.subscriptions = methods, subscriptions
-
-	if len(svc.callbacks) == 0 && len(svc.subscriptions) == 0 {
-		return fmt.Errorf("Service %T doesn't have any suitable methods/subscriptions to expose", rcvr)
-	}
 
 	s.services[svc.name] = svc
 	return nil
@@ -145,7 +142,7 @@ func (s *Server) serveRequest(ctx context.Context, codec ServerCodec, singleShot
 	defer cancel()
 
 	// if the codec supports notification include a notifier that callbacks can use
-	// to send notification to clients. It is thight to the codec/connection. If the
+	// to send notification to clients. It is tied to the codec/connection. If the
 	// connection is closed the notifier will stop and cancels all active subscriptions.
 	if options&OptionSubscriptions == OptionSubscriptions {
 		ctx = context.WithValue(ctx, notifierKey{}, newNotifier(codec))
@@ -313,7 +310,6 @@ func (s *Server) handle(ctx context.Context, codec ServerCodec, req *serverReque
 	if len(reply) == 0 {
 		return codec.CreateResponse(req.id, nil), nil
 	}
-
 	if req.callb.errPos >= 0 { // test if method returned an error
 		if !reply[req.callb.errPos].IsNil() {
 			e := reply[req.callb.errPos].Interface().(error)
@@ -409,7 +405,7 @@ func (s *Server) readRequest(codec ServerCodec) ([]*serverRequest, bool, Error) 
 			continue
 		}
 
-		if r.isPubSub { // man_subscribe, r.method contains the subscription method name
+		if r.isPubSub { // eth_subscribe, r.method contains the subscription method name
 			if callb, ok := svc.subscriptions[r.method]; ok {
 				requests[i] = &serverRequest{id: r.id, svcname: svc.name, callb: callb}
 				if r.params != nil && len(callb.argTypes) > 0 {

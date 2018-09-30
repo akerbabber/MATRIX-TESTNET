@@ -1,25 +1,25 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package vm
 
 import (
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/common/math"
-	"github.com/matrix/go-matrix/params"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/math"
+	"github.com/ethereum/go-ethereum/params"
 )
 
 // memoryGasCosts calculates the quadratic gas for memory expansion. It does so
@@ -117,24 +117,69 @@ func gasReturnDataCopy(gt params.GasTable, evm *EVM, contract *Contract, stack *
 
 func gasSStore(gt params.GasTable, evm *EVM, contract *Contract, stack *Stack, mem *Memory, memorySize uint64) (uint64, error) {
 	var (
-		y, x = stack.Back(1), stack.Back(0)
-		val  = evm.StateDB.GetState(contract.Address(), common.BigToHash(x))
+		y, x    = stack.Back(1), stack.Back(0)
+		current = evm.StateDB.GetState(contract.Address(), common.BigToHash(x))
 	)
-	// This checks for 3 scenario's and calculates gas accordingly
-	// 1. From a zero-value address to a non-zero value         (NEW VALUE)
-	// 2. From a non-zero value address to a zero-value address (DELETE)
-	// 3. From a non-zero to a non-zero                         (CHANGE)
-	if common.EmptyHash(val) && !common.EmptyHash(common.BigToHash(y)) {
-		// 0 => non 0
-		return params.SstoreSetGas, nil
-	} else if !common.EmptyHash(val) && common.EmptyHash(common.BigToHash(y)) {
-		evm.StateDB.AddRefund(params.SstoreRefundGas)
-
-		return params.SstoreClearGas, nil
-	} else {
-		// non 0 => non 0 (or 0 => 0)
-		return params.SstoreResetGas, nil
+	// The legacy gas metering only takes into consideration the current state
+	if !evm.chainRules.IsConstantinople {
+		// This checks for 3 scenario's and calculates gas accordingly:
+		//
+		// 1. From a zero-value address to a non-zero value         (NEW VALUE)
+		// 2. From a non-zero value address to a zero-value address (DELETE)
+		// 3. From a non-zero to a non-zero                         (CHANGE)
+		switch {
+		case current == (common.Hash{}) && y.Sign() != 0: // 0 => non 0
+			return params.SstoreSetGas, nil
+		case current != (common.Hash{}) && y.Sign() == 0: // non 0 => 0
+			evm.StateDB.AddRefund(params.SstoreRefundGas)
+			return params.SstoreClearGas, nil
+		default: // non 0 => non 0 (or 0 => 0)
+			return params.SstoreResetGas, nil
+		}
 	}
+	// The new gas metering is based on net gas costs (EIP-1283):
+	//
+	// 1. If current value equals new value (this is a no-op), 200 gas is deducted.
+	// 2. If current value does not equal new value
+	//   2.1. If original value equals current value (this storage slot has not been changed by the current execution context)
+	//     2.1.1. If original value is 0, 20000 gas is deducted.
+	// 	   2.1.2. Otherwise, 5000 gas is deducted. If new value is 0, add 15000 gas to refund counter.
+	// 	2.2. If original value does not equal current value (this storage slot is dirty), 200 gas is deducted. Apply both of the following clauses.
+	// 	  2.2.1. If original value is not 0
+	//       2.2.1.1. If current value is 0 (also means that new value is not 0), remove 15000 gas from refund counter. We can prove that refund counter will never go below 0.
+	//       2.2.1.2. If new value is 0 (also means that current value is not 0), add 15000 gas to refund counter.
+	// 	  2.2.2. If original value equals new value (this storage slot is reset)
+	//       2.2.2.1. If original value is 0, add 19800 gas to refund counter.
+	// 	     2.2.2.2. Otherwise, add 4800 gas to refund counter.
+	value := common.BigToHash(y)
+	if current == value { // noop (1)
+		return params.NetSstoreNoopGas, nil
+	}
+	original := evm.StateDB.GetCommittedState(contract.Address(), common.BigToHash(x))
+	if original == current {
+		if original == (common.Hash{}) { // create slot (2.1.1)
+			return params.NetSstoreInitGas, nil
+		}
+		if value == (common.Hash{}) { // delete slot (2.1.2b)
+			evm.StateDB.AddRefund(params.NetSstoreClearRefund)
+		}
+		return params.NetSstoreCleanGas, nil // write existing slot (2.1.2)
+	}
+	if original != (common.Hash{}) {
+		if current == (common.Hash{}) { // recreate slot (2.2.1.1)
+			evm.StateDB.SubRefund(params.NetSstoreClearRefund)
+		} else if value == (common.Hash{}) { // delete slot (2.2.1.2)
+			evm.StateDB.AddRefund(params.NetSstoreClearRefund)
+		}
+	}
+	if original == value {
+		if original == (common.Hash{}) { // reset to original inexistent slot (2.2.2.1)
+			evm.StateDB.AddRefund(params.NetSstoreResetClearRefund)
+		} else { // reset to original existing slot (2.2.2.2)
+			evm.StateDB.AddRefund(params.NetSstoreResetRefund)
+		}
+	}
+	return params.NetSstoreDirtyGas, nil
 }
 
 func makeGasLog(n uint64) gasFunc {
@@ -241,6 +286,10 @@ func gasExtCodeCopy(gt params.GasTable, evm *EVM, contract *Contract, stack *Sta
 	return gas, nil
 }
 
+func gasExtCodeHash(gt params.GasTable, evm *EVM, contract *Contract, stack *Stack, mem *Memory, memorySize uint64) (uint64, error) {
+	return gt.ExtcodeHash, nil
+}
+
 func gasMLoad(gt params.GasTable, evm *EVM, contract *Contract, stack *Stack, mem *Memory, memorySize uint64) (uint64, error) {
 	var overflow bool
 	gas, err := memoryGasCost(mem, memorySize)
@@ -284,6 +333,18 @@ func gasCreate(gt params.GasTable, evm *EVM, contract *Contract, stack *Stack, m
 		return 0, err
 	}
 	if gas, overflow = math.SafeAdd(gas, params.CreateGas); overflow {
+		return 0, errGasUintOverflow
+	}
+	return gas, nil
+}
+
+func gasCreate2(gt params.GasTable, evm *EVM, contract *Contract, stack *Stack, mem *Memory, memorySize uint64) (uint64, error) {
+	var overflow bool
+	gas, err := memoryGasCost(mem, memorySize)
+	if err != nil {
+		return 0, err
+	}
+	if gas, overflow = math.SafeAdd(gas, params.Create2Gas); overflow {
 		return 0, errGasUintOverflow
 	}
 	return gas, nil

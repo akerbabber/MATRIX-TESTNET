@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2014 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package types
 
@@ -23,10 +23,10 @@ import (
 	"math/big"
 	"sync/atomic"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/common/hexutil"
-	"github.com/matrix/go-matrix/crypto"
-	"github.com/matrix/go-matrix/rlp"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/rlp"
 )
 
 //go:generate gencodec -type txdata -field-override txdataMarshaling -out gen_tx_json.go
@@ -35,75 +35,14 @@ var (
 	ErrInvalidSig = errors.New("invalid transaction v, r, s values")
 )
 
-// deriveSigner makes a *best* guess about which signer to use.
-func deriveSigner(V *big.Int) Signer {
-	if V.Sign() != 0 && isProtectedV(V) {
-		return NewEIP155Signer(deriveChainId(V))
-	} else {
-		return HomesteadSigner{}
-	}
-}
-
 type Transaction struct {
 	data txdata
 	// caches
 	hash atomic.Value
 	size atomic.Value
 	from atomic.Value
-
-	// by hezi
-	N []uint32
 }
 
-//YY
-type Transaction_Mx struct {
-	Data txdata
-	//// caches
-	//Hash atomic.Value
-	//Size atomic.Value
-	//From atomic.Value
-	TxType_Mx  byte
-	LockHeight uint64  `json:"lockHeight" gencodec:"required"`
-	ExtraTo    []Tx_to `json:"extra_to" gencodec:"required"`
-	// by hezi
-	//N []uint32
-}
-
-//YY
-type ExtraTo_tr struct {
-	To_tr    *common.Address `json:"to"`
-	Value_tr *hexutil.Big    `json:"value"`
-	Input_tr *hexutil.Bytes  `json:"input"`
-}
-
-//YY
-type Tx_to struct {
-	Recipient *common.Address `json:"to"       rlp:"nil"` // nil means contract creation
-	Amount    *big.Int        `json:"value"    gencodec:"required"`
-	Payload   []byte          `json:"input"    gencodec:"required"`
-}
-
-//YY
-type Matrix_Extra struct {
-	TxType     byte    `json:"txType" gencodec:"required"`
-	LockHeight uint64  `json:"lockHeight" gencodec:"required"`
-	ExtraTo    []Tx_to `json:"extra_to" gencodec:"required"`
-}
-
-//YY 用于洪泛（传输）
-type Floodtxdata struct {
-	AccountNonce uint64          `json:"nonce"    gencodec:"required"`
-	Price        *big.Int        `json:"gasPrice" gencodec:"required"`
-	GasLimit     uint64          `json:"gas"      gencodec:"required"`
-	Recipient    *common.Address `json:"to"       rlp:"nil"` // nil means contract creation
-	Amount       *big.Int        `json:"value"    gencodec:"required"`
-	Payload      []byte          `json:"input"    gencodec:"required"`
-
-	// Signature values
-	V     *big.Int       `json:"v" gencodec:"required"`
-	R     *big.Int       `json:"r" gencodec:"required"`
-	Extra []Matrix_Extra ` rlp:"tail"`
-}
 type txdata struct {
 	AccountNonce uint64          `json:"nonce"    gencodec:"required"`
 	Price        *big.Int        `json:"gasPrice" gencodec:"required"`
@@ -118,8 +57,7 @@ type txdata struct {
 	S *big.Int `json:"s" gencodec:"required"`
 
 	// This is only used when marshaling to JSON.
-	Hash  *common.Hash   `json:"hash" rlp:"-"`
-	Extra []Matrix_Extra ` rlp:"tail"` //YY
+	Hash *common.Hash `json:"hash" rlp:"-"`
 }
 
 type txdataMarshaling struct {
@@ -141,92 +79,6 @@ func NewContractCreation(nonce uint64, amount *big.Int, gasLimit uint64, gasPric
 	return newTransaction(nonce, nil, amount, gasLimit, gasPrice, data)
 }
 
-//YY
-func NewTransactions(nonce uint64, to common.Address, amount *big.Int, gasLimit uint64, gasPrice *big.Int, data []byte, ex []*ExtraTo_tr, localtime uint64, txType byte) *Transaction {
-	return newTransactions(nonce, &to, amount, gasLimit, gasPrice, data, ex, localtime, txType)
-}
-
-//YY
-func NewHeartTransaction(txType byte, data []byte) *Transaction {
-	return newHeartTransaction(txType, data)
-}
-
-//YY
-func newTransactions(nonce uint64, to *common.Address, amount *big.Int, gasLimit uint64, gasPrice *big.Int, data []byte, ex []*ExtraTo_tr, localtime uint64, txType byte) *Transaction {
-	if len(data) > 0 {
-		data = common.CopyBytes(data)
-	}
-	d := txdata{
-		AccountNonce: nonce,
-		Recipient:    to,
-		Payload:      data,
-		Amount:       new(big.Int),
-		GasLimit:     gasLimit,
-		Price:        new(big.Int),
-		V:            new(big.Int),
-		R:            new(big.Int),
-		S:            new(big.Int),
-		Extra:        make([]Matrix_Extra, 0),
-	}
-	if amount != nil {
-		d.Amount.Set(amount)
-	}
-	if gasPrice != nil {
-		d.Price.Set(gasPrice)
-	}
-	//YY
-	if len(ex) > 0 {
-		arrayTx := make([]Tx_to, 0)
-		matrixEx := new(Matrix_Extra)
-		for _, extro := range ex {
-			var input []byte
-			if extro.Input_tr == nil {
-				input = make([]byte, 0)
-			} else {
-				input = *extro.Input_tr
-			}
-			txto := new(Tx_to)
-
-			txto.Amount = (*big.Int)(extro.Value_tr)
-			txto.Recipient = extro.To_tr
-			txto.Payload = input
-			arrayTx = append(arrayTx, *txto)
-		}
-		matrixEx.TxType = txType
-		matrixEx.LockHeight = localtime
-		matrixEx.ExtraTo = arrayTx
-		d.Extra = append(d.Extra, *matrixEx)
-	}
-	return &Transaction{data: d}
-}
-
-//YY 心跳交易
-func newHeartTransaction(txType byte, data []byte) *Transaction {
-	if len(data) > 0 {
-		data = common.CopyBytes(data)
-	}
-	mx := Matrix_Extra{
-		TxType: txType,
-	}
-	d := txdata{
-		AccountNonce: 0,
-		Recipient:    &common.Address{},
-		Payload:      data,
-		Amount:       new(big.Int),
-		GasLimit:     0,
-		Price:        new(big.Int),
-		V:            new(big.Int),
-		R:            new(big.Int),
-		S:            new(big.Int),
-		Extra:        make([]Matrix_Extra, 0),
-	}
-
-	d.Amount.Set(big.NewInt(0))
-	d.Price.Set(big.NewInt(12))
-
-	d.Extra = append(d.Extra, mx)
-	return &Transaction{data: d}
-}
 func newTransaction(nonce uint64, to *common.Address, amount *big.Int, gasLimit uint64, gasPrice *big.Int, data []byte) *Transaction {
 	if len(data) > 0 {
 		data = common.CopyBytes(data)
@@ -267,7 +119,7 @@ func isProtectedV(V *big.Int) bool {
 		v := V.Uint64()
 		return v != 27 && v != 28
 	}
-	// anything not 27 or 28 are considered unprotected
+	// anything not 27 or 28 is considered protected
 	return true
 }
 
@@ -301,16 +153,21 @@ func (tx *Transaction) UnmarshalJSON(input []byte) error {
 	if err := dec.UnmarshalJSON(input); err != nil {
 		return err
 	}
-	var V byte
-	if isProtectedV(dec.V) {
-		chainID := deriveChainId(dec.V).Uint64()
-		V = byte(dec.V.Uint64() - 35 - 2*chainID)
-	} else {
-		V = byte(dec.V.Uint64() - 27)
+
+	withSignature := dec.V.Sign() != 0 || dec.R.Sign() != 0 || dec.S.Sign() != 0
+	if withSignature {
+		var V byte
+		if isProtectedV(dec.V) {
+			chainID := deriveChainId(dec.V).Uint64()
+			V = byte(dec.V.Uint64() - 35 - 2*chainID)
+		} else {
+			V = byte(dec.V.Uint64() - 27)
+		}
+		if !crypto.ValidateSignatureValues(V, dec.R, dec.S, false) {
+			return ErrInvalidSig
+		}
 	}
-	if !crypto.ValidateSignatureValues(V, dec.R, dec.S, false) {
-		return ErrInvalidSig
-	}
+
 	*tx = Transaction{data: dec}
 	return nil
 }
@@ -321,164 +178,6 @@ func (tx *Transaction) GasPrice() *big.Int { return new(big.Int).Set(tx.data.Pri
 func (tx *Transaction) Value() *big.Int    { return new(big.Int).Set(tx.data.Amount) }
 func (tx *Transaction) Nonce() uint64      { return tx.data.AccountNonce }
 func (tx *Transaction) CheckNonce() bool   { return true }
-
-//YY
-func (tx *Transaction) GetMatrix_EX() []Matrix_Extra { return tx.data.Extra }
-
-//YY// Cost returns amount + gasprice * gaslimit.
-func (tx *Transaction) CostALL() *big.Int {
-	total := new(big.Int).Mul(tx.data.Price, new(big.Int).SetUint64(tx.data.GasLimit))
-	total.Add(total, tx.data.Amount)
-	for _, extra := range tx.data.Extra[0].ExtraTo {
-		total.Add(total, extra.Amount)
-	}
-	return total
-}
-
-//YY
-func (tx *Transaction) GetTxV() *big.Int { return tx.data.V }
-
-//YY
-func (tx *Transaction) GetTxS() *big.Int { return tx.data.S }
-
-//YY 在传递交易时用来操作Nonce
-func (tx *Transaction) SetNonce(nc uint64) {
-	tx.data.AccountNonce = nc
-}
-
-//YY
-func GetFloodData(tx *Transaction) *Floodtxdata {
-
-	floodtx := &Floodtxdata{
-		AccountNonce: tx.data.AccountNonce,
-		Price:        tx.data.Price,
-		GasLimit:     tx.data.GasLimit,
-		Recipient:    tx.data.Recipient,
-		Amount:       tx.data.Amount,
-		Payload:      tx.data.Payload,
-		// Signature values
-		V:     tx.data.V,
-		R:     tx.data.R,
-		Extra: tx.data.Extra,
-	}
-	return floodtx
-}
-
-//YY
-func SetFloodData(floodtx *Floodtxdata) *Transaction {
-	tx := &Transaction{}
-	tx.data.AccountNonce = floodtx.AccountNonce
-	tx.data.Price = floodtx.Price
-	tx.data.GasLimit = floodtx.GasLimit
-	tx.data.Recipient = floodtx.Recipient
-	tx.data.Amount = floodtx.Amount
-	tx.data.Payload = floodtx.Payload
-	// Signature values
-	tx.data.V = floodtx.V
-	tx.data.R = floodtx.R
-	tx.data.Extra = floodtx.Extra
-	return tx
-}
-
-//YY
-func SetTransactionMx(tx_Mx *Transaction_Mx) *Transaction {
-	tx := txdata{
-		AccountNonce: tx_Mx.Data.AccountNonce,
-		Price:        tx_Mx.Data.Price,
-		GasLimit:     tx_Mx.Data.GasLimit,
-		Recipient:    tx_Mx.Data.Recipient,
-		Amount:       tx_Mx.Data.Amount,
-		Payload:      tx_Mx.Data.Payload,
-		// Signature values
-		V:     tx_Mx.Data.V,
-		R:     tx_Mx.Data.R,
-		S:     tx_Mx.Data.S,
-		Extra: tx_Mx.Data.Extra,
-	}
-	mx := Matrix_Extra{
-		TxType: tx_Mx.TxType_Mx,
-	}
-	tx.Extra = append(tx.Extra, mx)
-	return &Transaction{data: tx}
-}
-
-//YY
-func GetTransactionMx(tx *Transaction) *Transaction_Mx {
-	tx_Mx := &Transaction_Mx{}
-	tx_Mx.Data.AccountNonce = tx.data.AccountNonce
-	tx_Mx.Data.Price = tx.data.Price
-	tx_Mx.Data.GasLimit = tx.data.GasLimit
-	tx_Mx.Data.Recipient = tx.data.Recipient
-	tx_Mx.Data.Amount = tx.data.Amount
-	tx_Mx.Data.Payload = tx.data.Payload
-	// Signature values
-	tx_Mx.Data.V = tx.data.V
-	tx_Mx.Data.R = tx.data.R
-	tx_Mx.Data.S = tx.data.S
-	tx_Mx.Data.Extra = tx.data.Extra
-	if len(tx.data.Extra) > 0 {
-		tx_Mx.TxType_Mx = tx.data.Extra[0].TxType
-	}
-	return tx_Mx
-}
-
-func ConvTxtoMxtx(tx *Transaction) *Transaction_Mx {
-	tx_Mx := &Transaction_Mx{}
-	tx_Mx.Data.AccountNonce = tx.data.AccountNonce
-	tx_Mx.Data.Price = tx.data.Price
-	tx_Mx.Data.GasLimit = tx.data.GasLimit
-	tx_Mx.Data.Recipient = tx.data.Recipient
-	tx_Mx.Data.Amount = tx.data.Amount
-	tx_Mx.Data.Payload = tx.data.Payload
-	// Signature values
-	tx_Mx.Data.V = tx.data.V
-	tx_Mx.Data.R = tx.data.R
-	tx_Mx.Data.S = tx.data.S
-	tx_Mx.Data.Extra = tx.data.Extra
-	//tx_Mx.Data.Extra = append(tx_Mx.Data.Extra,tx.data.Extra[])
-	if len(tx.data.Extra) > 0 {
-		tx_Mx.TxType_Mx = tx.data.Extra[0].TxType
-		tx_Mx.LockHeight = tx.data.Extra[0].LockHeight
-		tx_Mx.ExtraTo = tx.data.Extra[0].ExtraTo
-	}
-	return tx_Mx
-}
-
-func ConvMxtotx(tx_Mx *Transaction_Mx) *Transaction {
-	tx := txdata{
-		AccountNonce: tx_Mx.Data.AccountNonce,
-		Price:        tx_Mx.Data.Price,
-		GasLimit:     tx_Mx.Data.GasLimit,
-		Recipient:    tx_Mx.Data.Recipient,
-		Amount:       tx_Mx.Data.Amount,
-		Payload:      tx_Mx.Data.Payload,
-		// Signature values
-		V:     tx_Mx.Data.V,
-		R:     tx_Mx.Data.R,
-		S:     tx_Mx.Data.S,
-		Extra: tx_Mx.Data.Extra,
-	}
-	if len(tx_Mx.ExtraTo) > 0 {
-		mx := Matrix_Extra{
-			TxType:     tx_Mx.TxType_Mx,
-			LockHeight: tx_Mx.LockHeight,
-			ExtraTo:    tx_Mx.ExtraTo,
-		}
-		if mx.TxType == 0 {
-			mx.LockHeight = tx_Mx.LockHeight
-		}
-		tx.Extra = append(tx.Extra, mx)
-	}
-
-	return &Transaction{data: tx}
-}
-
-//hezi
-func (tx *Transaction) SetTxS(S *big.Int) { tx.data.S = S }
-
-//func (tx *Transaction) SetTxN(N uint32) {tx.data.N = N}
-//func (tx *Transaction) GetTxN() uint32{return tx.data.N}
-//func (tx *Transaction) GetTxIsFlood() bool{return tx.data.IsFlood}
 
 // To returns the recipient address of the transaction.
 // It returns nil if the transaction is a contract creation.
@@ -528,10 +227,7 @@ func (tx *Transaction) AsMessage(s Signer) (Message, error) {
 		data:       tx.data.Payload,
 		checkNonce: true,
 	}
-	//YY
-	if len(tx.data.Extra) > 0 {
-		msg.extra = tx.data.Extra[0]
-	}
+
 	var err error
 	msg.from, err = Sender(s, tx)
 	return msg, err
@@ -546,10 +242,6 @@ func (tx *Transaction) WithSignature(signer Signer, sig []byte) (*Transaction, e
 	}
 	cpy := &Transaction{data: tx.data}
 	cpy.data.R, cpy.data.S, cpy.data.V = r, s, v
-	//YY
-	if len(cpy.data.Extra) > 0 {
-		cpy.data.V.Add(cpy.data.V, big.NewInt(128))
-	}
 	return cpy, nil
 }
 
@@ -579,9 +271,9 @@ func (s Transactions) GetRlp(i int) []byte {
 	return enc
 }
 
-// TxDifference returns a new set t which is the difference between a to b.
-func TxDifference(a, b Transactions) (keep Transactions) {
-	keep = make(Transactions, 0, len(a))
+// TxDifference returns a new set which is the difference between a and b.
+func TxDifference(a, b Transactions) Transactions {
+	keep := make(Transactions, 0, len(a))
 
 	remove := make(map[common.Hash]struct{})
 	for _, tx := range b {
@@ -700,7 +392,6 @@ type Message struct {
 	gasPrice   *big.Int
 	data       []byte
 	checkNonce bool
-	extra      Matrix_Extra //YY
 }
 
 func NewMessage(from common.Address, to *common.Address, nonce uint64, amount *big.Int, gasLimit uint64, gasPrice *big.Int, data []byte, checkNonce bool) Message {
@@ -724,4 +415,3 @@ func (m Message) Gas() uint64          { return m.gasLimit }
 func (m Message) Nonce() uint64        { return m.nonce }
 func (m Message) Data() []byte         { return m.data }
 func (m Message) CheckNonce() bool     { return m.checkNonce }
-func (m Message) Extra() Matrix_Extra  { return m.extra } //YY

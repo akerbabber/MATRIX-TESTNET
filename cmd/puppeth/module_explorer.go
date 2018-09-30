@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of go-ethereum.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// go-ethereum is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// go-ethereum is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU General Public License
+// along with go-ethereum. If not, see <http://www.gnu.org/licenses/>.
 
 package main
 
@@ -25,25 +25,25 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/matrix/go-matrix/log"
+	"github.com/ethereum/go-ethereum/log"
 )
 
 // explorerDockerfile is the Dockerfile required to run a block explorer.
 var explorerDockerfile = `
 FROM puppeth/explorer:latest
 
-ADD manstats.json /manstats.json
+ADD ethstats.json /ethstats.json
 ADD chain.json /chain.json
 
 RUN \
-  echo '(cd ../man-net-intelligence-api && pm2 start /manstats.json)' >  explorer.sh && \
-	echo '(cd ../manchain-light && npm start &)'                      >> explorer.sh && \
-	echo '/parity/parity --chain=/chain.json --port={{.NodePort}} --tracing=on --fat-db=on --pruning=archive' >> explorer.sh
+  echo '(cd ../eth-net-intelligence-api && pm2 start /ethstats.json)' >  explorer.sh && \
+	echo '(cd ../etherchain-light && npm start &)'                      >> explorer.sh && \
+	echo 'exec /parity/parity --chain=/chain.json --port={{.NodePort}} --tracing=on --fat-db=on --pruning=archive' >> explorer.sh
 
 ENTRYPOINT ["/bin/sh", "explorer.sh"]
 `
 
-// explorerEthstats is the configuration file for the manstats javascript client.
+// explorerEthstats is the configuration file for the ethstats javascript client.
 var explorerEthstats = `[
   {
     "name"              : "node-app",
@@ -82,7 +82,7 @@ services:
       - "{{.NodePort}}:{{.NodePort}}/udp"{{if not .VHost}}
       - "{{.WebPort}}:3000"{{end}}
     volumes:
-      - {{.Datadir}}:/root/.local/share/io.parity.matrix
+      - {{.Datadir}}:/root/.local/share/io.parity.ethereum
     environment:
       - NODE_PORT={{.NodePort}}/tcp
       - STATS={{.Ethstats}}{{if .VHost}}
@@ -110,14 +110,14 @@ func deployExplorer(client *sshClient, network string, chainspec []byte, config 
 	})
 	files[filepath.Join(workdir, "Dockerfile")] = dockerfile.Bytes()
 
-	manstats := new(bytes.Buffer)
-	template.Must(template.New("").Parse(explorerEthstats)).Execute(manstats, map[string]interface{}{
+	ethstats := new(bytes.Buffer)
+	template.Must(template.New("").Parse(explorerEthstats)).Execute(ethstats, map[string]interface{}{
 		"Port":   config.nodePort,
-		"Name":   config.manstats[:strings.Index(config.manstats, ":")],
-		"Secret": config.manstats[strings.Index(config.manstats, ":")+1 : strings.Index(config.manstats, "@")],
-		"Host":   config.manstats[strings.Index(config.manstats, "@")+1:],
+		"Name":   config.ethstats[:strings.Index(config.ethstats, ":")],
+		"Secret": config.ethstats[strings.Index(config.ethstats, ":")+1 : strings.Index(config.ethstats, "@")],
+		"Host":   config.ethstats[strings.Index(config.ethstats, "@")+1:],
 	})
-	files[filepath.Join(workdir, "manstats.json")] = manstats.Bytes()
+	files[filepath.Join(workdir, "ethstats.json")] = ethstats.Bytes()
 
 	composefile := new(bytes.Buffer)
 	template.Must(template.New("").Parse(explorerComposefile)).Execute(composefile, map[string]interface{}{
@@ -126,7 +126,7 @@ func deployExplorer(client *sshClient, network string, chainspec []byte, config 
 		"NodePort": config.nodePort,
 		"VHost":    config.webHost,
 		"WebPort":  config.webPort,
-		"Ethstats": config.manstats[:strings.Index(config.manstats, ":")],
+		"Ethstats": config.ethstats[:strings.Index(config.ethstats, ":")],
 	})
 	files[filepath.Join(workdir, "docker-compose.yaml")] = composefile.Bytes()
 
@@ -140,16 +140,16 @@ func deployExplorer(client *sshClient, network string, chainspec []byte, config 
 
 	// Build and deploy the boot or seal node service
 	if nocache {
-		return nil, client.Stream(fmt.Sprintf("cd %s && docker-compose -p %s build --pull --no-cache && docker-compose -p %s up -d --force-recreate", workdir, network, network))
+		return nil, client.Stream(fmt.Sprintf("cd %s && docker-compose -p %s build --pull --no-cache && docker-compose -p %s up -d --force-recreate --timeout 60", workdir, network, network))
 	}
-	return nil, client.Stream(fmt.Sprintf("cd %s && docker-compose -p %s up -d --build --force-recreate", workdir, network))
+	return nil, client.Stream(fmt.Sprintf("cd %s && docker-compose -p %s up -d --build --force-recreate --timeout 60", workdir, network))
 }
 
 // explorerInfos is returned from a block explorer status check to allow reporting
 // various configuration parameters.
 type explorerInfos struct {
 	datadir  string
-	manstats string
+	ethstats string
 	nodePort int
 	webHost  string
 	webPort  int
@@ -161,7 +161,7 @@ func (info *explorerInfos) Report() map[string]string {
 	report := map[string]string{
 		"Data directory":         info.datadir,
 		"Node listener port ":    strconv.Itoa(info.nodePort),
-		"Ethstats username":      info.manstats,
+		"Ethstats username":      info.ethstats,
 		"Website address ":       info.webHost,
 		"Website listener port ": strconv.Itoa(info.webPort),
 	}
@@ -201,11 +201,11 @@ func checkExplorer(client *sshClient, network string) (*explorerInfos, error) {
 	}
 	// Assemble and return the useful infos
 	stats := &explorerInfos{
-		datadir:  infos.volumes["/root/.local/share/io.parity.matrix"],
+		datadir:  infos.volumes["/root/.local/share/io.parity.ethereum"],
 		nodePort: nodePort,
 		webHost:  host,
 		webPort:  webPort,
-		manstats: infos.envvars["STATS"],
+		ethstats: infos.envvars["STATS"],
 	}
 	return stats, nil
 }

@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2015 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package rpc
 
@@ -31,12 +31,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/rs/cors"
 )
 
 const (
 	contentType             = "application/json"
-	maxRequestContentLength = 1024 * 128
+	maxRequestContentLength = 1024 * 512
 )
 
 var nullAddr, _ = net.ResolveTCPAddr("tcp", "127.0.0.1:0")
@@ -64,6 +65,38 @@ func (hc *httpConn) Read(b []byte) (int, error) {
 func (hc *httpConn) Close() error {
 	hc.closeOnce.Do(func() { close(hc.closed) })
 	return nil
+}
+
+// HTTPTimeouts represents the configuration params for the HTTP RPC server.
+type HTTPTimeouts struct {
+	// ReadTimeout is the maximum duration for reading the entire
+	// request, including the body.
+	//
+	// Because ReadTimeout does not let Handlers make per-request
+	// decisions on each request body's acceptable deadline or
+	// upload rate, most users will prefer to use
+	// ReadHeaderTimeout. It is valid to use them both.
+	ReadTimeout time.Duration
+
+	// WriteTimeout is the maximum duration before timing out
+	// writes of the response. It is reset whenever a new
+	// request's header is read. Like ReadTimeout, it does not
+	// let Handlers make decisions on a per-request basis.
+	WriteTimeout time.Duration
+
+	// IdleTimeout is the maximum amount of time to wait for the
+	// next request when keep-alives are enabled. If IdleTimeout
+	// is zero, the value of ReadTimeout is used. If both are
+	// zero, ReadHeaderTimeout is used.
+	IdleTimeout time.Duration
+}
+
+// DefaultHTTPTimeouts represents the default timeout values used if further
+// configuration is not provided.
+var DefaultHTTPTimeouts = HTTPTimeouts{
+	ReadTimeout:  30 * time.Second,
+	WriteTimeout: 30 * time.Second,
+	IdleTimeout:  120 * time.Second,
 }
 
 // DialHTTPWithClient creates a new RPC client that connects to an RPC server over HTTP
@@ -161,11 +194,31 @@ func (t *httpReadWriteNopCloser) Close() error {
 // NewHTTPServer creates a new HTTP RPC server around an API provider.
 //
 // Deprecated: Server implements http.Handler
-func NewHTTPServer(cors []string, vhosts []string, srv *Server) *http.Server {
+func NewHTTPServer(cors []string, vhosts []string, timeouts HTTPTimeouts, srv *Server) *http.Server {
 	// Wrap the CORS-handler within a host-handler
 	handler := newCorsHandler(srv, cors)
 	handler = newVHostHandler(vhosts, handler)
-	return &http.Server{Handler: handler}
+
+	// Make sure timeout values are meaningful
+	if timeouts.ReadTimeout < time.Second {
+		log.Warn("Sanitizing invalid HTTP read timeout", "provided", timeouts.ReadTimeout, "updated", DefaultHTTPTimeouts.ReadTimeout)
+		timeouts.ReadTimeout = DefaultHTTPTimeouts.ReadTimeout
+	}
+	if timeouts.WriteTimeout < time.Second {
+		log.Warn("Sanitizing invalid HTTP write timeout", "provided", timeouts.WriteTimeout, "updated", DefaultHTTPTimeouts.WriteTimeout)
+		timeouts.WriteTimeout = DefaultHTTPTimeouts.WriteTimeout
+	}
+	if timeouts.IdleTimeout < time.Second {
+		log.Warn("Sanitizing invalid HTTP idle timeout", "provided", timeouts.IdleTimeout, "updated", DefaultHTTPTimeouts.IdleTimeout)
+		timeouts.IdleTimeout = DefaultHTTPTimeouts.IdleTimeout
+	}
+	// Bundle and start the HTTP server
+	return &http.Server{
+		Handler:      handler,
+		ReadTimeout:  timeouts.ReadTimeout,
+		WriteTimeout: timeouts.WriteTimeout,
+		IdleTimeout:  timeouts.IdleTimeout,
+	}
 }
 
 // ServeHTTP serves JSON-RPC requests over HTTP.
@@ -181,10 +234,16 @@ func (srv *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// All checks passed, create a codec that reads direct from the request body
 	// untilEOF and writes the response to w and order the server to process a
 	// single request.
-	ctx := context.Background()
+	ctx := r.Context()
 	ctx = context.WithValue(ctx, "remote", r.RemoteAddr)
 	ctx = context.WithValue(ctx, "scheme", r.Proto)
 	ctx = context.WithValue(ctx, "local", r.Host)
+	if ua := r.Header.Get("User-Agent"); ua != "" {
+		ctx = context.WithValue(ctx, "User-Agent", ua)
+	}
+	if origin := r.Header.Get("Origin"); origin != "" {
+		ctx = context.WithValue(ctx, "Origin", origin)
+	}
 
 	body := io.LimitReader(r.Body, maxRequestContentLength)
 	codec := NewJSONCodec(&httpReadWriteNopCloser{body, w})

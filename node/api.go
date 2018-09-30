@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2015 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package node
 
@@ -22,12 +22,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/matrix/go-matrix/common/hexutil"
-	"github.com/matrix/go-matrix/crypto"
-	"github.com/matrix/go-matrix/metrics"
-	"github.com/matrix/go-matrix/p2p"
-	"github.com/matrix/go-matrix/p2p/discover"
-	"github.com/matrix/go-matrix/rpc"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/metrics"
+	"github.com/ethereum/go-ethereum/p2p"
+	"github.com/ethereum/go-ethereum/p2p/enode"
+	"github.com/ethereum/go-ethereum/rpc"
 )
 
 // PrivateAdminAPI is the collection of administrative API methods exposed only
@@ -51,7 +51,7 @@ func (api *PrivateAdminAPI) AddPeer(url string) (bool, error) {
 		return false, ErrNodeStopped
 	}
 	// Try to add the url as a static peer and return
-	node, err := discover.ParseNode(url)
+	node, err := enode.ParseV4(url)
 	if err != nil {
 		return false, fmt.Errorf("invalid enode: %v", err)
 	}
@@ -59,7 +59,7 @@ func (api *PrivateAdminAPI) AddPeer(url string) (bool, error) {
 	return true, nil
 }
 
-// RemovePeer disconnects from a a remote node if the connection exists
+// RemovePeer disconnects from a remote node if the connection exists
 func (api *PrivateAdminAPI) RemovePeer(url string) (bool, error) {
 	// Make sure the server is running, fail otherwise
 	server := api.node.Server()
@@ -67,11 +67,42 @@ func (api *PrivateAdminAPI) RemovePeer(url string) (bool, error) {
 		return false, ErrNodeStopped
 	}
 	// Try to remove the url as a static peer and return
-	node, err := discover.ParseNode(url)
+	node, err := enode.ParseV4(url)
 	if err != nil {
 		return false, fmt.Errorf("invalid enode: %v", err)
 	}
 	server.RemovePeer(node)
+	return true, nil
+}
+
+// AddTrustedPeer allows a remote node to always connect, even if slots are full
+func (api *PrivateAdminAPI) AddTrustedPeer(url string) (bool, error) {
+	// Make sure the server is running, fail otherwise
+	server := api.node.Server()
+	if server == nil {
+		return false, ErrNodeStopped
+	}
+	node, err := enode.ParseV4(url)
+	if err != nil {
+		return false, fmt.Errorf("invalid enode: %v", err)
+	}
+	server.AddTrustedPeer(node)
+	return true, nil
+}
+
+// RemoveTrustedPeer removes a remote node from the trusted peer set, but it
+// does not disconnect it automatically.
+func (api *PrivateAdminAPI) RemoveTrustedPeer(url string) (bool, error) {
+	// Make sure the server is running, fail otherwise
+	server := api.node.Server()
+	if server == nil {
+		return false, ErrNodeStopped
+	}
+	node, err := enode.ParseV4(url)
+	if err != nil {
+		return false, fmt.Errorf("invalid enode: %v", err)
+	}
+	server.RemoveTrustedPeer(node)
 	return true, nil
 }
 
@@ -157,7 +188,7 @@ func (api *PrivateAdminAPI) StartRPC(host *string, port *int, cors *string, apis
 		}
 	}
 
-	if err := api.node.startHTTP(fmt.Sprintf("%s:%d", *host, *port), api.node.rpcAPIs, modules, allowedOrigins, allowedVHosts); err != nil {
+	if err := api.node.startHTTP(fmt.Sprintf("%s:%d", *host, *port), api.node.rpcAPIs, modules, allowedOrigins, allowedVHosts, api.node.config.HTTPTimeouts); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -338,6 +369,21 @@ func (api *PublicDebugAPI) Metrics(raw bool) (map[string]interface{}, error) {
 					},
 				}
 
+			case metrics.ResettingTimer:
+				t := metric.Snapshot()
+				ps := t.Percentiles([]float64{5, 20, 50, 80, 95})
+				root[name] = map[string]interface{}{
+					"Measurements": len(t.Values()),
+					"Mean":         t.Mean(),
+					"Percentiles": map[string]interface{}{
+						"5":  ps[0],
+						"20": ps[1],
+						"50": ps[2],
+						"80": ps[3],
+						"95": ps[4],
+					},
+				}
+
 			default:
 				root[name] = "Unknown metric type"
 			}
@@ -373,6 +419,21 @@ func (api *PublicDebugAPI) Metrics(raw bool) (map[string]interface{}, error) {
 					},
 				}
 
+			case metrics.ResettingTimer:
+				t := metric.Snapshot()
+				ps := t.Percentiles([]float64{5, 20, 50, 80, 95})
+				root[name] = map[string]interface{}{
+					"Measurements": len(t.Values()),
+					"Mean":         time.Duration(t.Mean()).String(),
+					"Percentiles": map[string]interface{}{
+						"5":  time.Duration(ps[0]).String(),
+						"20": time.Duration(ps[1]).String(),
+						"50": time.Duration(ps[2]).String(),
+						"80": time.Duration(ps[3]).String(),
+						"95": time.Duration(ps[4]).String(),
+					},
+				}
+
 			default:
 				root[name] = "Unknown metric type"
 			}
@@ -396,7 +457,7 @@ func (s *PublicWeb3API) ClientVersion() string {
 	return s.stack.Server().Name
 }
 
-// Sha3 applies the matrix sha3 implementation on the input.
+// Sha3 applies the ethereum sha3 implementation on the input.
 // It assumes the input is hex encoded.
 func (s *PublicWeb3API) Sha3(input hexutil.Bytes) hexutil.Bytes {
 	return crypto.Keccak256(input)

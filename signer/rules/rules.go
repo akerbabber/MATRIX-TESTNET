@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2018 The go-ethereum Authors
+// This file is part of go-ethereum.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// go-ethereum is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// go-ethereum is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU General Public License
+// along with go-ethereum. If not, see <http://www.gnu.org/licenses/>.
 
 package rules
 
@@ -22,12 +22,12 @@ import (
 	"os"
 	"strings"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/internal/manapi"
-	"github.com/matrix/go-matrix/log"
-	"github.com/matrix/go-matrix/signer/core"
-	"github.com/matrix/go-matrix/signer/rules/deps"
-	"github.com/matrix/go-matrix/signer/storage"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/internal/ethapi"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/signer/core"
+	"github.com/ethereum/go-ethereum/signer/rules/deps"
+	"github.com/ethereum/go-ethereum/signer/storage"
 	"github.com/robertkrimen/otto"
 )
 
@@ -194,6 +194,11 @@ func (r *rulesetUI) ApproveImport(request *core.ImportRequest) (core.ImportRespo
 	return r.next.ApproveImport(request)
 }
 
+// OnInputRequired not handled by rules
+func (r *rulesetUI) OnInputRequired(info core.UserInputRequest) (core.UserInputResponse, error) {
+	return r.next.OnInputRequired(info)
+}
+
 func (r *rulesetUI) ApproveListing(request *core.ListRequest) (core.ListResponse, error) {
 	jsonreq, err := json.Marshal(request)
 	approved, err := r.checkApproval("ApproveListing", jsonreq, err)
@@ -222,6 +227,7 @@ func (r *rulesetUI) ShowInfo(message string) {
 	log.Info(message)
 	r.next.ShowInfo(message)
 }
+
 func (r *rulesetUI) OnSignerStartup(info core.StartupInfo) {
 	jsonInfo, err := json.Marshal(info)
 	if err != nil {
@@ -235,7 +241,7 @@ func (r *rulesetUI) OnSignerStartup(info core.StartupInfo) {
 	}
 }
 
-func (r *rulesetUI) OnApprovedTx(tx manapi.SignTransactionResult) {
+func (r *rulesetUI) OnApprovedTx(tx ethapi.SignTransactionResult) {
 	jsonTx, err := json.Marshal(tx)
 	if err != nil {
 		log.Warn("failed marshalling transaction", "tx", tx)

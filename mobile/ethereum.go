@@ -1,34 +1,34 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
-// Contains all the wrappers from the go-matrix root package.
+// Contains all the wrappers from the go-ethereum root package.
 
-package gman
+package geth
 
 import (
 	"errors"
 
-	matrix "github.com/matrix/go-matrix"
-	"github.com/matrix/go-matrix/common"
+	ethereum "github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/common"
 )
 
 // Subscription represents an event subscription where events are
 // delivered on a data channel.
 type Subscription struct {
-	sub matrix.Subscription
+	sub ethereum.Subscription
 }
 
 // Unsubscribe cancels the sending of events to the data channel
@@ -39,7 +39,7 @@ func (s *Subscription) Unsubscribe() {
 
 // CallMsg contains parameters for contract calls.
 type CallMsg struct {
-	msg matrix.CallMsg
+	msg ethereum.CallMsg
 }
 
 // NewCallMsg creates an empty contract call parameter list.
@@ -67,14 +67,15 @@ func (msg *CallMsg) SetData(data []byte)       { msg.msg.Data = common.CopyBytes
 func (msg *CallMsg) SetTo(address *Address) {
 	if address == nil {
 		msg.msg.To = nil
+		return
 	}
 	msg.msg.To = &address.address
 }
 
 // SyncProgress gives progress indications when the node is synchronising with
-// the Matrix network.
+// the Ethereum network.
 type SyncProgress struct {
-	progress matrix.SyncProgress
+	progress ethereum.SyncProgress
 }
 
 func (p *SyncProgress) GetStartingBlock() int64 { return int64(p.progress.StartingBlock) }
@@ -125,12 +126,12 @@ func (t *Topics) Append(topics *Hashes) {
 	t.topics = append(t.topics, topics.hashes)
 }
 
-// FilterQuery contains options for contact log filtering.
+// FilterQuery contains options for contract log filtering.
 type FilterQuery struct {
-	query matrix.FilterQuery
+	query ethereum.FilterQuery
 }
 
-// NewFilterQuery creates an empty filter query for contact log filtering.
+// NewFilterQuery creates an empty filter query for contract log filtering.
 func NewFilterQuery() *FilterQuery {
 	return new(FilterQuery)
 }

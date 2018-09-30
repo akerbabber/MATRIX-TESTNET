@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2015 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package core
 
@@ -26,13 +26,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/consensus"
-	"github.com/matrix/go-matrix/core/rawdb"
-	"github.com/matrix/go-matrix/core/types"
-	"github.com/matrix/go-matrix/mandb"
-	"github.com/matrix/go-matrix/log"
-	"github.com/matrix/go-matrix/params"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/consensus"
+	"github.com/ethereum/go-ethereum/core/rawdb"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/hashicorp/golang-lru"
 )
 
@@ -50,7 +50,7 @@ const (
 type HeaderChain struct {
 	config *params.ChainConfig
 
-	chainDb       mandb.Database
+	chainDb       ethdb.Database
 	genesisHeader *types.Header
 
 	currentHeader     atomic.Value // Current head of the header chain (may be above the block chain!)
@@ -70,7 +70,7 @@ type HeaderChain struct {
 //  getValidator should return the parent's validator
 //  procInterrupt points to the parent's interrupt semaphore
 //  wg points to the parent's shutdown wait group
-func NewHeaderChain(chainDb mandb.Database, config *params.ChainConfig, engine consensus.Engine, procInterrupt func() bool) (*HeaderChain, error) {
+func NewHeaderChain(chainDb ethdb.Database, config *params.ChainConfig, engine consensus.Engine, procInterrupt func() bool) (*HeaderChain, error) {
 	headerCache, _ := lru.New(headerCacheLimit)
 	tdCache, _ := lru.New(tdCacheLimit)
 	numberCache, _ := lru.New(numberCacheLimit)
@@ -156,13 +156,16 @@ func (hc *HeaderChain) WriteHeader(header *types.Header) (status WriteStatus, er
 	// Please refer to http://www.cs.cornell.edu/~ie53/publications/btcProcFC.pdf
 	if externTd.Cmp(localTd) > 0 || (externTd.Cmp(localTd) == 0 && mrand.Float64() < 0.5) {
 		// Delete any canonical number assignments above the new head
+		batch := hc.chainDb.NewBatch()
 		for i := number + 1; ; i++ {
 			hash := rawdb.ReadCanonicalHash(hc.chainDb, i)
 			if hash == (common.Hash{}) {
 				break
 			}
-			rawdb.DeleteCanonicalHash(hc.chainDb, i)
+			rawdb.DeleteCanonicalHash(batch, i)
 		}
+		batch.Write()
+
 		// Overwrite any stale canonical number assignments
 		var (
 			headHash   = header.ParentHash
@@ -205,7 +208,7 @@ func (hc *HeaderChain) ValidateHeaderChain(chain []*types.Header, checkFreq int)
 	// Do a sanity check that the provided chain is actually ordered and linked
 	for i := 1; i < len(chain); i++ {
 		if chain[i].Number.Uint64() != chain[i-1].Number.Uint64()+1 || chain[i].ParentHash != chain[i-1].Hash() {
-			// Chain broke ancestry, log a messge (programming error) and skip insertion
+			// Chain broke ancestry, log a message (programming error) and skip insertion
 			log.Error("Non contiguous header insert", "number", chain[i].Number, "hash", chain[i].Hash(),
 				"parent", chain[i].ParentHash, "prevnumber", chain[i-1].Number, "prevhash", chain[i-1].Hash())
 
@@ -221,19 +224,10 @@ func (hc *HeaderChain) ValidateHeaderChain(chain []*types.Header, checkFreq int)
 		if index >= len(seals) {
 			index = len(seals) - 1
 		}
-		if common.IsBroadcastNumber(chain[index].Number.Uint64()) {
-			seals[index] = false
-		} else {
-			seals[index] = true
-		}
+		seals[index] = true
 	}
-	//todo:状态树
-	if common.IsBroadcastNumber(chain[len(seals)-1].Number.Uint64()) {
-		seals[len(seals)-1] = false
-	} else {
-		seals[len(seals)-1] = true
-	}
-	//seals[len(seals)-1] = true // Last should always be verified to avoid junk
+	seals[len(seals)-1] = true // Last should always be verified to avoid junk
+
 	abort, results := hc.engine.VerifyHeaders(hc, chain, seals)
 	defer close(abort)
 
@@ -287,8 +281,18 @@ func (hc *HeaderChain) InsertHeaderChain(chain []*types.Header, writeHeader WhCa
 	}
 	// Report some public statistics so the user has a clue what's going on
 	last := chain[len(chain)-1]
-	log.Info("Imported new block headers", "count", stats.processed, "elapsed", common.PrettyDuration(time.Since(start)),
-		"number", last.Number, "hash", last.Hash(), "ignored", stats.ignored)
+
+	context := []interface{}{
+		"count", stats.processed, "elapsed", common.PrettyDuration(time.Since(start)),
+		"number", last.Number, "hash", last.Hash(),
+	}
+	if timestamp := time.Unix(last.Time.Int64(), 0); time.Since(timestamp) > time.Minute {
+		context = append(context, []interface{}{"age", common.PrettyAge(timestamp)}...)
+	}
+	if stats.ignored > 0 {
+		context = append(context, []interface{}{"ignored", stats.ignored}...)
+	}
+	log.Info("Imported new block headers", context...)
 
 	return 0, nil
 }
@@ -314,6 +318,43 @@ func (hc *HeaderChain) GetBlockHashesFromHash(hash common.Hash, max uint64) []co
 		}
 	}
 	return chain
+}
+
+// GetAncestor retrieves the Nth ancestor of a given block. It assumes that either the given block or
+// a close ancestor of it is canonical. maxNonCanonical points to a downwards counter limiting the
+// number of blocks to be individually checked before we reach the canonical chain.
+//
+// Note: ancestor == 0 returns the same block, 1 returns its parent and so on.
+func (hc *HeaderChain) GetAncestor(hash common.Hash, number, ancestor uint64, maxNonCanonical *uint64) (common.Hash, uint64) {
+	if ancestor > number {
+		return common.Hash{}, 0
+	}
+	if ancestor == 1 {
+		// in this case it is cheaper to just read the header
+		if header := hc.GetHeader(hash, number); header != nil {
+			return header.ParentHash, number - 1
+		} else {
+			return common.Hash{}, 0
+		}
+	}
+	for ancestor != 0 {
+		if rawdb.ReadCanonicalHash(hc.chainDb, number) == hash {
+			number -= ancestor
+			return rawdb.ReadCanonicalHash(hc.chainDb, number), number
+		}
+		if *maxNonCanonical == 0 {
+			return common.Hash{}, 0
+		}
+		*maxNonCanonical--
+		ancestor--
+		header := hc.GetHeader(hash, number)
+		if header == nil {
+			return common.Hash{}, 0
+		}
+		hash = header.ParentHash
+		number--
+	}
+	return hash, number
 }
 
 // GetTd retrieves a block's total difficulty in the canonical chain from the
@@ -410,7 +451,7 @@ func (hc *HeaderChain) SetCurrentHeader(head *types.Header) {
 
 // DeleteCallback is a callback function that is called by SetHead before
 // each header is deleted.
-type DeleteCallback func(common.Hash, uint64)
+type DeleteCallback func(rawdb.DatabaseDeleter, common.Hash, uint64)
 
 // SetHead rewinds the local chain to a new head. Everything above the new head
 // will be deleted and the new one set.
@@ -420,22 +461,24 @@ func (hc *HeaderChain) SetHead(head uint64, delFn DeleteCallback) {
 	if hdr := hc.CurrentHeader(); hdr != nil {
 		height = hdr.Number.Uint64()
 	}
-
+	batch := hc.chainDb.NewBatch()
 	for hdr := hc.CurrentHeader(); hdr != nil && hdr.Number.Uint64() > head; hdr = hc.CurrentHeader() {
 		hash := hdr.Hash()
 		num := hdr.Number.Uint64()
 		if delFn != nil {
-			delFn(hash, num)
+			delFn(batch, hash, num)
 		}
-		rawdb.DeleteHeader(hc.chainDb, hash, num)
-		rawdb.DeleteTd(hc.chainDb, hash, num)
+		rawdb.DeleteHeader(batch, hash, num)
+		rawdb.DeleteTd(batch, hash, num)
 
 		hc.currentHeader.Store(hc.GetHeader(hdr.ParentHash, hdr.Number.Uint64()-1))
 	}
 	// Roll back the canonical chain numbering
 	for i := height; i > head; i-- {
-		rawdb.DeleteCanonicalHash(hc.chainDb, i)
+		rawdb.DeleteCanonicalHash(batch, i)
 	}
+	batch.Write()
+
 	// Clear out any stale content from the caches
 	hc.headerCache.Purge()
 	hc.tdCache.Purge()

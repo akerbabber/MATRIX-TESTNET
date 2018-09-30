@@ -1,23 +1,8 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
-//
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
-//
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 // Copyright 2012 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Package bn256 implements a particular bilinear group at the 128-bit security level.
+// Package bn256 implements a particular bilinear group.
 //
 // Bilinear groups are the basis of many of the new cryptographic protocols
 // that have been proposed over the past decade. They consist of a triplet of
@@ -29,6 +14,10 @@
 // Barreto-Naehrig curve as described in
 // http://cryptojedi.org/papers/dclxvi-20100714.pdf. Its output is compatible
 // with the implementation described in that paper.
+//
+// (This package previously claimed to operate at a 128-bit security level.
+// However, recent improvements in attacks mean that is no longer true. See
+// https://moderncrypto.org/mail-archive/curves/2016/000740.html.)
 package bn256
 
 import (
@@ -65,8 +54,8 @@ func RandomG1(r io.Reader) (*big.Int, *G1, error) {
 	return k, new(G1).ScalarBaseMult(k), nil
 }
 
-func (g *G1) String() string {
-	return "bn256.G1" + g.p.String()
+func (e *G1) String() string {
+	return "bn256.G1" + e.p.String()
 }
 
 // CurvePoints returns p's curve points in big integer
@@ -113,14 +102,18 @@ func (e *G1) Neg(a *G1) *G1 {
 }
 
 // Marshal converts n to a byte slice.
-func (n *G1) Marshal() []byte {
-	n.p.MakeAffine(nil)
-
-	xBytes := new(big.Int).Mod(n.p.x, P).Bytes()
-	yBytes := new(big.Int).Mod(n.p.y, P).Bytes()
-
+func (e *G1) Marshal() []byte {
 	// Each value is a 256-bit number.
 	const numBytes = 256 / 8
+
+	if e.p.IsInfinity() {
+		return make([]byte, numBytes*2)
+	}
+
+	e.p.MakeAffine(nil)
+
+	xBytes := new(big.Int).Mod(e.p.x, P).Bytes()
+	yBytes := new(big.Int).Mod(e.p.y, P).Bytes()
 
 	ret := make([]byte, numBytes*2)
 	copy(ret[1*numBytes-len(xBytes):], xBytes)
@@ -190,8 +183,8 @@ func RandomG2(r io.Reader) (*big.Int, *G2, error) {
 	return k, new(G2).ScalarBaseMult(k), nil
 }
 
-func (g *G2) String() string {
-	return "bn256.G2" + g.p.String()
+func (e *G2) String() string {
+	return "bn256.G2" + e.p.String()
 }
 
 // CurvePoints returns the curve points of p which includes the real
@@ -231,15 +224,19 @@ func (e *G2) Add(a, b *G2) *G2 {
 
 // Marshal converts n into a byte slice.
 func (n *G2) Marshal() []byte {
+	// Each value is a 256-bit number.
+	const numBytes = 256 / 8
+
+	if n.p.IsInfinity() {
+		return make([]byte, numBytes*4)
+	}
+
 	n.p.MakeAffine(nil)
 
 	xxBytes := new(big.Int).Mod(n.p.x.x, P).Bytes()
 	xyBytes := new(big.Int).Mod(n.p.x.y, P).Bytes()
 	yxBytes := new(big.Int).Mod(n.p.y.x, P).Bytes()
 	yyBytes := new(big.Int).Mod(n.p.y.y, P).Bytes()
-
-	// Each value is a 256-bit number.
-	const numBytes = 256 / 8
 
 	ret := make([]byte, numBytes*4)
 	copy(ret[1*numBytes-len(xxBytes):], xxBytes)

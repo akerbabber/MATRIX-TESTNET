@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package protocols
 
@@ -23,10 +23,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matrix/go-matrix/p2p"
-	"github.com/matrix/go-matrix/p2p/discover"
-	"github.com/matrix/go-matrix/p2p/simulations/adapters"
-	p2ptest "github.com/matrix/go-matrix/p2p/testing"
+	"github.com/ethereum/go-ethereum/p2p"
+	"github.com/ethereum/go-ethereum/p2p/enode"
+	"github.com/ethereum/go-ethereum/p2p/simulations/adapters"
+	p2ptest "github.com/ethereum/go-ethereum/p2p/testing"
 )
 
 // handshake message type
@@ -36,7 +36,7 @@ type hs0 struct {
 
 // message to kill/drop the peer with nodeID
 type kill struct {
-	C discover.NodeID
+	C enode.ID
 }
 
 // message to drop connection
@@ -104,7 +104,7 @@ func newProtocol(pp *p2ptest.TestPeerPool) func(*p2p.Peer, p2p.MsgReadWriter) er
 			return fmt.Errorf("handshake mismatch remote %v > local %v", rmhs.C, lhs.C)
 		}
 
-		handle := func(msg interface{}) error {
+		handle := func(ctx context.Context, msg interface{}) error {
 			switch msg := msg.(type) {
 
 			case *protoHandshake:
@@ -116,7 +116,7 @@ func newProtocol(pp *p2ptest.TestPeerPool) func(*p2p.Peer, p2p.MsgReadWriter) er
 					return fmt.Errorf("handshake mismatch remote %v > local %v", rhs.C, lhs.C)
 				}
 				lhs.C += rhs.C
-				return peer.Send(lhs)
+				return peer.Send(ctx, lhs)
 
 			case *kill:
 				// demonstrates use of peerPool, killing another peer connection as a response to a message
@@ -144,7 +144,7 @@ func protocolTester(t *testing.T, pp *p2ptest.TestPeerPool) *p2ptest.ProtocolTes
 	return p2ptest.NewProtocolTester(t, conf.ID, 2, newProtocol(pp))
 }
 
-func protoHandshakeExchange(id discover.NodeID, proto *protoHandshake) []p2ptest.Exchange {
+func protoHandshakeExchange(id enode.ID, proto *protoHandshake) []p2ptest.Exchange {
 
 	return []p2ptest.Exchange{
 		{
@@ -172,13 +172,13 @@ func runProtoHandshake(t *testing.T, proto *protoHandshake, errs ...error) {
 	pp := p2ptest.NewTestPeerPool()
 	s := protocolTester(t, pp)
 	// TODO: make this more than one handshake
-	id := s.IDs[0]
-	if err := s.TestExchanges(protoHandshakeExchange(id, proto)...); err != nil {
+	node := s.Nodes[0]
+	if err := s.TestExchanges(protoHandshakeExchange(node.ID(), proto)...); err != nil {
 		t.Fatal(err)
 	}
 	var disconnects []*p2ptest.Disconnect
 	for i, err := range errs {
-		disconnects = append(disconnects, &p2ptest.Disconnect{Peer: s.IDs[i], Error: err})
+		disconnects = append(disconnects, &p2ptest.Disconnect{Peer: s.Nodes[i].ID(), Error: err})
 	}
 	if err := s.TestDisconnected(disconnects...); err != nil {
 		t.Fatal(err)
@@ -197,7 +197,7 @@ func TestProtoHandshakeSuccess(t *testing.T) {
 	runProtoHandshake(t, &protoHandshake{42, "420"})
 }
 
-func moduleHandshakeExchange(id discover.NodeID, resp uint) []p2ptest.Exchange {
+func moduleHandshakeExchange(id enode.ID, resp uint) []p2ptest.Exchange {
 
 	return []p2ptest.Exchange{
 		{
@@ -224,16 +224,16 @@ func moduleHandshakeExchange(id discover.NodeID, resp uint) []p2ptest.Exchange {
 func runModuleHandshake(t *testing.T, resp uint, errs ...error) {
 	pp := p2ptest.NewTestPeerPool()
 	s := protocolTester(t, pp)
-	id := s.IDs[0]
-	if err := s.TestExchanges(protoHandshakeExchange(id, &protoHandshake{42, "420"})...); err != nil {
+	node := s.Nodes[0]
+	if err := s.TestExchanges(protoHandshakeExchange(node.ID(), &protoHandshake{42, "420"})...); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.TestExchanges(moduleHandshakeExchange(id, resp)...); err != nil {
+	if err := s.TestExchanges(moduleHandshakeExchange(node.ID(), resp)...); err != nil {
 		t.Fatal(err)
 	}
 	var disconnects []*p2ptest.Disconnect
 	for i, err := range errs {
-		disconnects = append(disconnects, &p2ptest.Disconnect{Peer: s.IDs[i], Error: err})
+		disconnects = append(disconnects, &p2ptest.Disconnect{Peer: s.Nodes[i].ID(), Error: err})
 	}
 	if err := s.TestDisconnected(disconnects...); err != nil {
 		t.Fatal(err)
@@ -249,7 +249,7 @@ func TestModuleHandshakeSuccess(t *testing.T) {
 }
 
 // testing complex interactions over multiple peers, relaying, dropping
-func testMultiPeerSetup(a, b discover.NodeID) []p2ptest.Exchange {
+func testMultiPeerSetup(a, b enode.ID) []p2ptest.Exchange {
 
 	return []p2ptest.Exchange{
 		{
@@ -305,7 +305,7 @@ func runMultiplePeers(t *testing.T, peer int, errs ...error) {
 	pp := p2ptest.NewTestPeerPool()
 	s := protocolTester(t, pp)
 
-	if err := s.TestExchanges(testMultiPeerSetup(s.IDs[0], s.IDs[1])...); err != nil {
+	if err := s.TestExchanges(testMultiPeerSetup(s.Nodes[0].ID(), s.Nodes[1].ID())...); err != nil {
 		t.Fatal(err)
 	}
 	// after some exchanges of messages, we can test state changes
@@ -318,15 +318,15 @@ WAIT:
 	for {
 		select {
 		case <-tick.C:
-			if pp.Has(s.IDs[0]) {
+			if pp.Has(s.Nodes[0].ID()) {
 				break WAIT
 			}
 		case <-timeout.C:
 			t.Fatal("timeout")
 		}
 	}
-	if !pp.Has(s.IDs[1]) {
-		t.Fatalf("missing peer test-1: %v (%v)", pp, s.IDs)
+	if !pp.Has(s.Nodes[1].ID()) {
+		t.Fatalf("missing peer test-1: %v (%v)", pp, s.Nodes)
 	}
 
 	// peer 0 sends kill request for peer with index <peer>
@@ -334,8 +334,8 @@ WAIT:
 		Triggers: []p2ptest.Trigger{
 			{
 				Code: 2,
-				Msg:  &kill{s.IDs[peer]},
-				Peer: s.IDs[0],
+				Msg:  &kill{s.Nodes[peer].ID()},
+				Peer: s.Nodes[0].ID(),
 			},
 		},
 	})
@@ -350,7 +350,7 @@ WAIT:
 			{
 				Code: 3,
 				Msg:  &drop{},
-				Peer: s.IDs[(peer+1)%2],
+				Peer: s.Nodes[(peer+1)%2].ID(),
 			},
 		},
 	})
@@ -362,26 +362,25 @@ WAIT:
 	// check the actual discconnect errors on the individual peers
 	var disconnects []*p2ptest.Disconnect
 	for i, err := range errs {
-		disconnects = append(disconnects, &p2ptest.Disconnect{Peer: s.IDs[i], Error: err})
+		disconnects = append(disconnects, &p2ptest.Disconnect{Peer: s.Nodes[i].ID(), Error: err})
 	}
 	if err := s.TestDisconnected(disconnects...); err != nil {
 		t.Fatal(err)
 	}
 	// test if disconnected peers have been removed from peerPool
-	if pp.Has(s.IDs[peer]) {
-		t.Fatalf("peer test-%v not dropped: %v (%v)", peer, pp, s.IDs)
+	if pp.Has(s.Nodes[peer].ID()) {
+		t.Fatalf("peer test-%v not dropped: %v (%v)", peer, pp, s.Nodes)
 	}
 
 }
-
-func TestMultiplePeersDropSelf(t *testing.T) {
+func XTestMultiplePeersDropSelf(t *testing.T) {
 	runMultiplePeers(t, 0,
 		fmt.Errorf("subprotocol error"),
 		fmt.Errorf("Message handler error: (msg code 3): dropped"),
 	)
 }
 
-func TestMultiplePeersDropOther(t *testing.T) {
+func XTestMultiplePeersDropOther(t *testing.T) {
 	runMultiplePeers(t, 1,
 		fmt.Errorf("Message handler error: (msg code 3): dropped"),
 		fmt.Errorf("subprotocol error"),

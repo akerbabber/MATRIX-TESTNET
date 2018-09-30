@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2015 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package bind
 
@@ -21,9 +21,9 @@ import (
 	"errors"
 	"math/big"
 
-	"github.com/matrix/go-matrix"
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/core/types"
+	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 )
 
 var (
@@ -47,9 +47,9 @@ type ContractCaller interface {
 	// CodeAt returns the code of the given account. This is needed to differentiate
 	// between contract internal errors and the local chain being out of sync.
 	CodeAt(ctx context.Context, contract common.Address, blockNumber *big.Int) ([]byte, error)
-	// ContractCall executes an Matrix contract call with the specified data as the
+	// ContractCall executes an Ethereum contract call with the specified data as the
 	// input.
-	CallContract(ctx context.Context, call matrix.CallMsg, blockNumber *big.Int) ([]byte, error)
+	CallContract(ctx context.Context, call ethereum.CallMsg, blockNumber *big.Int) ([]byte, error)
 }
 
 // PendingContractCaller defines methods to perform contract calls on the pending state.
@@ -58,8 +58,8 @@ type ContractCaller interface {
 type PendingContractCaller interface {
 	// PendingCodeAt returns the code of the given account in the pending state.
 	PendingCodeAt(ctx context.Context, contract common.Address) ([]byte, error)
-	// PendingCallContract executes an Matrix contract call against the pending state.
-	PendingCallContract(ctx context.Context, call matrix.CallMsg) ([]byte, error)
+	// PendingCallContract executes an Ethereum contract call against the pending state.
+	PendingCallContract(ctx context.Context, call ethereum.CallMsg) ([]byte, error)
 }
 
 // ContractTransactor defines the methods needed to allow operating with contract
@@ -79,7 +79,7 @@ type ContractTransactor interface {
 	// There is no guarantee that this is the true gas limit requirement as other
 	// transactions may be added or removed by miners, but it should provide a basis
 	// for setting a reasonable default.
-	EstimateGas(ctx context.Context, call matrix.CallMsg) (gas uint64, err error)
+	EstimateGas(ctx context.Context, call ethereum.CallMsg) (gas uint64, err error)
 	// SendTransaction injects the transaction into the pending pool for execution.
 	SendTransaction(ctx context.Context, tx *types.Transaction) error
 }
@@ -91,11 +91,11 @@ type ContractFilterer interface {
 	// returning all the results in one batch.
 	//
 	// TODO(karalabe): Deprecate when the subscription one can return past data too.
-	FilterLogs(ctx context.Context, query matrix.FilterQuery) ([]types.Log, error)
+	FilterLogs(ctx context.Context, query ethereum.FilterQuery) ([]types.Log, error)
 
 	// SubscribeFilterLogs creates a background log filtering operation, returning
 	// a subscription immediately, which can be used to stream the found events.
-	SubscribeFilterLogs(ctx context.Context, query matrix.FilterQuery, ch chan<- types.Log) (matrix.Subscription, error)
+	SubscribeFilterLogs(ctx context.Context, query ethereum.FilterQuery, ch chan<- types.Log) (ethereum.Subscription, error)
 }
 
 // DeployBackend wraps the operations needed by WaitMined and WaitDeployed.

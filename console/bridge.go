@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package console
 
@@ -23,16 +23,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/matrix/go-matrix/accounts/usbwallet"
-	"github.com/matrix/go-matrix/log"
-	"github.com/matrix/go-matrix/rpc"
+	"github.com/ethereum/go-ethereum/accounts/usbwallet"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/robertkrimen/otto"
 )
 
 // bridge is a collection of JavaScript utility methods to bride the .js runtime
 // environment and the Go RPC connection backing the remote method calls.
 type bridge struct {
-	client   *rpc.Client  // RPC client to execute Matrix requests through
+	client   *rpc.Client  // RPC client to execute Ethereum requests through
 	prompter UserPrompter // Input prompter to allow interactive user feedback
 	printer  io.Writer    // Output writer to serialize any display strings to
 }
@@ -247,7 +247,7 @@ func (b *bridge) SleepBlocks(call otto.FunctionCall) (response otto.Value) {
 	// go through the console, this will allow web3 to call the appropriate
 	// callbacks if a delayed response or notification is received.
 	blockNumber := func() int64 {
-		result, err := call.Otto.Run("man.blockNumber")
+		result, err := call.Otto.Run("eth.blockNumber")
 		if err != nil {
 			throwJSException(err.Error())
 		}
@@ -271,7 +271,7 @@ func (b *bridge) SleepBlocks(call otto.FunctionCall) (response otto.Value) {
 }
 
 type jsonrpcCall struct {
-	Id     int64
+	ID     int64
 	Method string
 	Params []interface{}
 }
@@ -304,7 +304,7 @@ func (b *bridge) Send(call otto.FunctionCall) (response otto.Value) {
 	resps, _ := call.Otto.Object("new Array()")
 	for _, req := range reqs {
 		resp, _ := call.Otto.Object(`({"jsonrpc":"2.0"})`)
-		resp.Set("id", req.Id)
+		resp.Set("id", req.ID)
 		var result json.RawMessage
 		err = b.client.Call(&result, req.Method, req.Params...)
 		switch err := err.(type) {

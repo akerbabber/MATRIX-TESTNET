@@ -1,22 +1,23 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2014 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package p2p
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -24,11 +25,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/matrix/go-matrix/common/mclock"
-	"github.com/matrix/go-matrix/event"
-	"github.com/matrix/go-matrix/log"
-	"github.com/matrix/go-matrix/p2p/discover"
-	"github.com/matrix/go-matrix/rlp"
+	"github.com/ethereum/go-ethereum/common/mclock"
+	"github.com/ethereum/go-ethereum/event"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/p2p/enode"
+	"github.com/ethereum/go-ethereum/p2p/enr"
+	"github.com/ethereum/go-ethereum/rlp"
+)
+
+var (
+	ErrShuttingDown = errors.New("shutting down")
 )
 
 const (
@@ -55,7 +61,7 @@ type protoHandshake struct {
 	Name       string
 	Caps       []Cap
 	ListenPort uint64
-	ID         discover.NodeID
+	ID         []byte // secp256k1 public key
 
 	// Ignore additional fields (for forward compatibility).
 	Rest []rlp.RawValue `rlp:"tail"`
@@ -85,18 +91,16 @@ const (
 // PeerEvent is an event emitted when peers are either added or dropped from
 // a p2p.Server or when a message is sent or received on a peer connection
 type PeerEvent struct {
-	Type     PeerEventType   `json:"type"`
-	Peer     discover.NodeID `json:"peer"`
-	Error    string          `json:"error,omitempty"`
-	Protocol string          `json:"protocol,omitempty"`
-	MsgCode  *uint64         `json:"msg_code,omitempty"`
-	MsgSize  *uint32         `json:"msg_size,omitempty"`
+	Type     PeerEventType `json:"type"`
+	Peer     enode.ID      `json:"peer"`
+	Error    string        `json:"error,omitempty"`
+	Protocol string        `json:"protocol,omitempty"`
+	MsgCode  *uint64       `json:"msg_code,omitempty"`
+	MsgSize  *uint32       `json:"msg_size,omitempty"`
 }
 
 // Peer represents a connected remote node.
 type Peer struct {
-	msgReadWriter MsgReadWriter
-
 	rw      *conn
 	running map[string]*protoRW
 	log     log.Logger
@@ -112,17 +116,23 @@ type Peer struct {
 }
 
 // NewPeer returns a peer for testing purposes.
-func NewPeer(id discover.NodeID, name string, caps []Cap) *Peer {
+func NewPeer(id enode.ID, name string, caps []Cap) *Peer {
 	pipe, _ := net.Pipe()
-	conn := &conn{fd: pipe, transport: nil, id: id, caps: caps, name: name}
+	node := enode.SignNull(new(enr.Record), id)
+	conn := &conn{fd: pipe, transport: nil, node: node, caps: caps, name: name}
 	peer := newPeer(conn, nil)
 	close(peer.closed) // ensures Disconnect doesn't block
 	return peer
 }
 
 // ID returns the node's public key.
-func (p *Peer) ID() discover.NodeID {
-	return p.rw.id
+func (p *Peer) ID() enode.ID {
+	return p.rw.node.ID()
+}
+
+// Node returns the peer's node descriptor.
+func (p *Peer) Node() *enode.Node {
+	return p.rw.node
 }
 
 // Name returns the node name that the remote node advertised.
@@ -157,17 +167,13 @@ func (p *Peer) Disconnect(reason DiscReason) {
 
 // String implements fmt.Stringer.
 func (p *Peer) String() string {
-	return fmt.Sprintf("Peer %x %v", p.rw.id[:8], p.RemoteAddr())
+	id := p.ID()
+	return fmt.Sprintf("Peer %x %v", id[:8], p.RemoteAddr())
 }
 
 // Inbound returns true if the peer is an inbound connection
 func (p *Peer) Inbound() bool {
-	return p.rw.flags&inboundConn != 0
-}
-
-// MsgReadWriter return ReadWriter between peers.
-func (p *Peer) MsgReadWriter() MsgReadWriter {
-	return p.msgReadWriter
+	return p.rw.is(inboundConn)
 }
 
 func newPeer(conn *conn, protocols []Protocol) *Peer {
@@ -179,7 +185,7 @@ func newPeer(conn *conn, protocols []Protocol) *Peer {
 		disc:     make(chan DiscReason),
 		protoErr: make(chan error, len(protomap)+1), // protocols + pingLoop
 		closed:   make(chan struct{}),
-		log:      log.New("id", conn.id, "conn", conn.flags),
+		log:      log.New("id", conn.node.ID(), "conn", conn.flags),
 	}
 	return p
 }
@@ -350,7 +356,6 @@ func (p *Peer) startProtocols(writeStart <-chan struct{}, writeErr chan<- error)
 		if p.events != nil {
 			rw = newMsgEventer(rw, p.events, p.ID(), proto.Name)
 		}
-		p.msgReadWriter = rw
 		p.log.Trace(fmt.Sprintf("Starting protocol %s/%d", proto.Name, proto.Version))
 		go func() {
 			err := proto.Run(p, rw)
@@ -379,7 +384,7 @@ func (p *Peer) getProto(code uint64) (*protoRW, error) {
 
 type protoRW struct {
 	Protocol
-	in     chan Msg        // receices read messages
+	in     chan Msg        // receives read messages
 	closed <-chan struct{} // receives when peer is shutting down
 	wstart <-chan struct{} // receives when write may start
 	werr   chan<- error    // for write results
@@ -401,7 +406,7 @@ func (rw *protoRW) WriteMsg(msg Msg) (err error) {
 		// as well but we don't want to rely on that.
 		rw.werr <- err
 	case <-rw.closed:
-		err = fmt.Errorf("shutting down")
+		err = ErrShuttingDown
 	}
 	return err
 }

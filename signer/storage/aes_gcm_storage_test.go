@@ -1,29 +1,30 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2018 The go-ethereum Authors
+// This file is part of go-ethereum.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// go-ethereum is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// go-ethereum is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU General Public License
+// along with go-ethereum. If not, see <http://www.gnu.org/licenses/>.
 //
 package storage
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"testing"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/log"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/mattn/go-colorable"
 )
 
@@ -33,13 +34,13 @@ func TestEncryption(t *testing.T) {
 	key := []byte("AES256Key-32Characters1234567890")
 	plaintext := []byte("exampleplaintext")
 
-	c, iv, err := encrypt(key, plaintext)
+	c, iv, err := encrypt(key, plaintext, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	fmt.Printf("Ciphertext %x, nonce %x\n", c, iv)
 
-	p, err := decrypt(key, iv, c)
+	p, err := decrypt(key, iv, c, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +62,7 @@ func TestFileStorage(t *testing.T) {
 			CipherText: common.Hex2Bytes("2df87baf86b5073ef1f03e3cc738de75b511400f5465bb0ddeacf47ae4dc267d"),
 		},
 	}
-	d, err := ioutil.TempDir("", "man-encrypted-storage-test")
+	d, err := ioutil.TempDir("", "eth-encrypted-storage-test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +95,7 @@ func TestFileStorage(t *testing.T) {
 func TestEnd2End(t *testing.T) {
 	log.Root().SetHandler(log.LvlFilterHandler(log.Lvl(3), log.StreamHandler(colorable.NewColorableStderr(), log.TerminalFormat(true))))
 
-	d, err := ioutil.TempDir("", "man-encrypted-storage-test")
+	d, err := ioutil.TempDir("", "eth-encrypted-storage-test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,5 +112,53 @@ func TestEnd2End(t *testing.T) {
 	s1.Put("bazonk", "foobar")
 	if v := s2.Get("bazonk"); v != "foobar" {
 		t.Errorf("Expected bazonk->foobar, got '%v'", v)
+	}
+}
+
+func TestSwappedKeys(t *testing.T) {
+	// It should not be possible to swap the keys/values, so that
+	// K1:V1, K2:V2 can be swapped into K1:V2, K2:V1
+	log.Root().SetHandler(log.LvlFilterHandler(log.Lvl(3), log.StreamHandler(colorable.NewColorableStderr(), log.TerminalFormat(true))))
+
+	d, err := ioutil.TempDir("", "eth-encrypted-storage-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s1 := &AESEncryptedStorage{
+		filename: fmt.Sprintf("%v/vault.json", d),
+		key:      []byte("AES256Key-32Characters1234567890"),
+	}
+	s1.Put("k1", "v1")
+	s1.Put("k2", "v2")
+	// Now make a modified copy
+
+	creds := make(map[string]storedCredential)
+	raw, err := ioutil.ReadFile(s1.filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = json.Unmarshal(raw, &creds); err != nil {
+		t.Fatal(err)
+	}
+	swap := func() {
+		// Turn it into K1:V2, K2:V2
+		v1, v2 := creds["k1"], creds["k2"]
+		creds["k2"], creds["k1"] = v1, v2
+		raw, err = json.Marshal(creds)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = ioutil.WriteFile(s1.filename, raw, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	swap()
+	if v := s1.Get("k1"); v != "" {
+		t.Errorf("swapped value should return empty")
+	}
+	swap()
+	if v := s1.Get("k1"); v != "v1" {
+		t.Errorf("double-swapped value should work fine")
 	}
 }

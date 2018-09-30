@@ -1021,7 +1021,7 @@ var formatOutputInt = function (param) {
     var value = param.staticPart() || "0";
 
     // check if it's negative number
-    // it it is, return two's complement
+    // it is, return two's complement
     if (signedIsNegative(value)) {
         return new BigNumber(value, 16).minus(new BigNumber('ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff', 16)).minus(1);
     }
@@ -2250,7 +2250,7 @@ var isAddress = function (address) {
         // check if it has the basic requirements of an address
         return false;
     } else if (/^(0x)?[0-9a-f]{40}$/.test(address) || /^(0x)?[0-9A-F]{40}$/.test(address)) {
-        // If it's all small caps or all all caps, return true
+        // If it's all small caps or all caps, return true
         return true;
     } else {
         // Otherwise check each case
@@ -2531,7 +2531,6 @@ function Web3 (provider) {
     this._requestManager = new RequestManager(provider);
     this.currentProvider = provider;
     this.eth = new Eth(this);
-    this.man = this.eth;
     this.db = new DB(this);
     this.shh = new Shh(this);
     this.net = new Net(this);
@@ -5208,23 +5207,23 @@ var Iban = require('../iban');
 var transfer = require('../transfer');
 
 var blockCall = function (args) {
-    return (utils.isString(args[0]) && args[0].indexOf('0x') === 0) ? "man_getBlockByHash" : "man_getBlockByNumber";
+    return (utils.isString(args[0]) && args[0].indexOf('0x') === 0) ? "eth_getBlockByHash" : "eth_getBlockByNumber";
 };
 
 var transactionFromBlockCall = function (args) {
-    return (utils.isString(args[0]) && args[0].indexOf('0x') === 0) ? 'man_getTransactionByBlockHashAndIndex' : 'man_getTransactionByBlockNumberAndIndex';
+    return (utils.isString(args[0]) && args[0].indexOf('0x') === 0) ? 'eth_getTransactionByBlockHashAndIndex' : 'eth_getTransactionByBlockNumberAndIndex';
 };
 
 var uncleCall = function (args) {
-    return (utils.isString(args[0]) && args[0].indexOf('0x') === 0) ? 'man_getUncleByBlockHashAndIndex' : 'man_getUncleByBlockNumberAndIndex';
+    return (utils.isString(args[0]) && args[0].indexOf('0x') === 0) ? 'eth_getUncleByBlockHashAndIndex' : 'eth_getUncleByBlockNumberAndIndex';
 };
 
 var getBlockTransactionCountCall = function (args) {
-    return (utils.isString(args[0]) && args[0].indexOf('0x') === 0) ? 'man_getBlockTransactionCountByHash' : 'man_getBlockTransactionCountByNumber';
+    return (utils.isString(args[0]) && args[0].indexOf('0x') === 0) ? 'eth_getBlockTransactionCountByHash' : 'eth_getBlockTransactionCountByNumber';
 };
 
 var uncleCountCall = function (args) {
-    return (utils.isString(args[0]) && args[0].indexOf('0x') === 0) ? 'man_getUncleCountByBlockHash' : 'man_getUncleCountByBlockNumber';
+    return (utils.isString(args[0]) && args[0].indexOf('0x') === 0) ? 'eth_getUncleCountByBlockHash' : 'eth_getUncleCountByBlockNumber';
 };
 
 function Eth(web3) {
@@ -5270,7 +5269,7 @@ Object.defineProperty(Eth.prototype, 'defaultAccount', {
 var methods = function () {
     var getBalance = new Method({
         name: 'getBalance',
-        call: 'man_getBalance',
+        call: 'eth_getBalance',
         params: 2,
         inputFormatter: [formatters.inputAddressFormatter, formatters.inputDefaultBlockNumberFormatter],
         outputFormatter: formatters.outputBigNumberFormatter
@@ -5278,14 +5277,14 @@ var methods = function () {
 
     var getStorageAt = new Method({
         name: 'getStorageAt',
-        call: 'man_getStorageAt',
+        call: 'eth_getStorageAt',
         params: 3,
         inputFormatter: [null, utils.toHex, formatters.inputDefaultBlockNumberFormatter]
     });
 
     var getCode = new Method({
         name: 'getCode',
-        call: 'man_getCode',
+        call: 'eth_getCode',
         params: 2,
         inputFormatter: [formatters.inputAddressFormatter, formatters.inputDefaultBlockNumberFormatter]
     });
@@ -5309,7 +5308,7 @@ var methods = function () {
 
     var getCompilers = new Method({
         name: 'getCompilers',
-        call: 'man_getCompilers',
+        call: 'eth_getCompilers',
         params: 0
     });
 
@@ -5331,7 +5330,7 @@ var methods = function () {
 
     var getTransaction = new Method({
         name: 'getTransaction',
-        call: 'man_getTransactionByHash',
+        call: 'eth_getTransactionByHash',
         params: 1,
         outputFormatter: formatters.outputTransactionFormatter
     });
@@ -5346,14 +5345,14 @@ var methods = function () {
 
     var getTransactionReceipt = new Method({
         name: 'getTransactionReceipt',
-        call: 'man_getTransactionReceipt',
+        call: 'eth_getTransactionReceipt',
         params: 1,
         outputFormatter: formatters.outputTransactionReceiptFormatter
     });
 
     var getTransactionCount = new Method({
         name: 'getTransactionCount',
-        call: 'man_getTransactionCount',
+        call: 'eth_getTransactionCount',
         params: 2,
         inputFormatter: [null, formatters.inputDefaultBlockNumberFormatter],
         outputFormatter: utils.toDecimal
@@ -5361,42 +5360,42 @@ var methods = function () {
 
     var sendRawTransaction = new Method({
         name: 'sendRawTransaction',
-        call: 'man_sendRawTransaction',
+        call: 'eth_sendRawTransaction',
         params: 1,
         inputFormatter: [null]
     });
 
     var sendTransaction = new Method({
         name: 'sendTransaction',
-        call: 'man_sendTransaction',
+        call: 'eth_sendTransaction',
         params: 1,
         inputFormatter: [formatters.inputTransactionFormatter]
     });
 
     var signTransaction = new Method({
         name: 'signTransaction',
-        call: 'man_signTransaction',
+        call: 'eth_signTransaction',
         params: 1,
         inputFormatter: [formatters.inputTransactionFormatter]
     });
 
     var sign = new Method({
         name: 'sign',
-        call: 'man_sign',
+        call: 'eth_sign',
         params: 2,
         inputFormatter: [formatters.inputAddressFormatter, null]
     });
 
     var call = new Method({
         name: 'call',
-        call: 'man_call',
+        call: 'eth_call',
         params: 2,
         inputFormatter: [formatters.inputCallFormatter, formatters.inputDefaultBlockNumberFormatter]
     });
 
     var estimateGas = new Method({
         name: 'estimateGas',
-        call: 'man_estimateGas',
+        call: 'eth_estimateGas',
         params: 1,
         inputFormatter: [formatters.inputCallFormatter],
         outputFormatter: utils.toDecimal
@@ -5404,41 +5403,32 @@ var methods = function () {
 
     var compileSolidity = new Method({
         name: 'compile.solidity',
-        call: 'man_compileSolidity',
+        call: 'eth_compileSolidity',
         params: 1
     });
 
     var compileLLL = new Method({
         name: 'compile.lll',
-        call: 'man_compileLLL',
+        call: 'eth_compileLLL',
         params: 1
     });
 
     var compileSerpent = new Method({
         name: 'compile.serpent',
-        call: 'man_compileSerpent',
+        call: 'eth_compileSerpent',
         params: 1
     });
 
     var submitWork = new Method({
         name: 'submitWork',
-        call: 'man_submitWork',
+        call: 'eth_submitWork',
         params: 3
     });
 
     var getWork = new Method({
         name: 'getWork',
-        call: 'man_getWork',
+        call: 'eth_getWork',
         params: 0
-    });
-
-    //hezi
-    var getTopology = new Method({
-        name: 'getTopology',
-        call: 'man_getTopology',
-        params: 2,
-        inputFormatter: [utils.toDecimal, utils.toDecimal],
-        //outputFormatter: formatters.outputBigNumberFormatter
     });
 
     return [
@@ -5464,8 +5454,7 @@ var methods = function () {
         compileLLL,
         compileSerpent,
         submitWork,
-        getWork,
-        getTopology
+        getWork
     ];
 };
 
@@ -5474,39 +5463,39 @@ var properties = function () {
     return [
         new Property({
             name: 'coinbase',
-            getter: 'man_coinbase'
+            getter: 'eth_coinbase'
         }),
         new Property({
             name: 'mining',
-            getter: 'man_mining'
+            getter: 'eth_mining'
         }),
         new Property({
             name: 'hashrate',
-            getter: 'man_hashrate',
+            getter: 'eth_hashrate',
             outputFormatter: utils.toDecimal
         }),
         new Property({
             name: 'syncing',
-            getter: 'man_syncing',
+            getter: 'eth_syncing',
             outputFormatter: formatters.outputSyncingFormatter
         }),
         new Property({
             name: 'gasPrice',
-            getter: 'man_gasPrice',
+            getter: 'eth_gasPrice',
             outputFormatter: formatters.outputBigNumberFormatter
         }),
         new Property({
             name: 'accounts',
-            getter: 'man_accounts'
+            getter: 'eth_accounts'
         }),
         new Property({
             name: 'blockNumber',
-            getter: 'man_blockNumber',
+            getter: 'eth_blockNumber',
             outputFormatter: utils.toDecimal
         }),
         new Property({
             name: 'protocolVersion',
-            getter: 'man_protocolVersion'
+            getter: 'eth_protocolVersion'
         })
     ];
 };
@@ -6032,13 +6021,13 @@ var eth = function () {
             case 'latest':
                 args.shift();
                 this.params = 0;
-                return 'man_newBlockFilter';
+                return 'eth_newBlockFilter';
             case 'pending':
                 args.shift();
                 this.params = 0;
-                return 'man_newPendingTransactionFilter';
+                return 'eth_newPendingTransactionFilter';
             default:
-                return 'man_newFilter';
+                return 'eth_newFilter';
         }
     };
 
@@ -6050,19 +6039,19 @@ var eth = function () {
 
     var uninstallFilter = new Method({
         name: 'uninstallFilter',
-        call: 'man_uninstallFilter',
+        call: 'eth_uninstallFilter',
         params: 1
     });
 
     var getLogs = new Method({
         name: 'getLogs',
-        call: 'man_getFilterLogs',
+        call: 'eth_getFilterLogs',
         params: 1
     });
 
     var poll = new Method({
         name: 'poll',
-        call: 'man_getFilterChanges',
+        call: 'eth_getFilterChanges',
         params: 1
     });
 
@@ -6636,7 +6625,7 @@ var pollSyncing = function(self) {
     };
 
     self.requestManager.startPolling({
-        method: 'man_syncing',
+        method: 'eth_syncing',
         params: [],
     }, self.pollId, onMessage, self.stopWatching.bind(self));
 

@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package bloombits
 
@@ -26,8 +26,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/matrix/go-matrix/common/bitutil"
-	"github.com/matrix/go-matrix/crypto"
+	"github.com/ethereum/go-ethereum/common/bitutil"
+	"github.com/ethereum/go-ethereum/crypto"
 )
 
 // bloomIndexes represents the bit indexes inside the bloom filter that belong
@@ -59,7 +59,7 @@ type partialMatches struct {
 // It can also have the actual results set to be used as a delivery data struct.
 //
 // The contest and error fields are used by the light client to terminate matching
-// early if an error is enountered on some path of the pipeline.
+// early if an error is encountered on some path of the pipeline.
 type Retrieval struct {
 	Bit      uint
 	Sections []uint64
@@ -218,7 +218,7 @@ func (m *Matcher) Start(ctx context.Context, begin, end uint64, results chan uin
 // run creates a daisy-chain of sub-matchers, one for the address set and one
 // for each topic set, each sub-matcher receiving a section only if the previous
 // ones have all found a potential match in one of the blocks of the section,
-// then binary AND-ing its own matches and forwaring the result to the next one.
+// then binary AND-ing its own matches and forwarding the result to the next one.
 //
 // The method starts feeding the section indexes into the first sub-matcher on a
 // new goroutine and returns a sink channel receiving the results.
@@ -543,7 +543,7 @@ func (s *MatcherSession) Error() error {
 }
 
 // AllocateRetrieval assigns a bloom bit index to a client process that can either
-// immediately reuest and fetch the section contents assigned to this bit or wait
+// immediately request and fetch the section contents assigned to this bit or wait
 // a little while for more sections to be requested.
 func (s *MatcherSession) AllocateRetrieval() (uint, bool) {
 	fetcher := make(chan uint)
@@ -599,8 +599,8 @@ func (s *MatcherSession) DeliverSections(bit uint, sections []uint64, bitsets []
 	}
 }
 
-// Multiplex polls the matcher session for rerieval tasks and multiplexes it into
-// the reuested retrieval queue to be serviced together with other sessions.
+// Multiplex polls the matcher session for retrieval tasks and multiplexes it into
+// the requested retrieval queue to be serviced together with other sessions.
 //
 // This method will block for the lifetime of the session. Even after termination
 // of the session, any request in-flight need to be responded to! Empty responses

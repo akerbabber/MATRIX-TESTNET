@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2014 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package trie
 
@@ -22,15 +22,15 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/mandb"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/ethdb"
 )
 
 func TestIterator(t *testing.T) {
 	trie := newEmpty()
 	vals := []struct{ k, v string }{
 		{"do", "verb"},
-		{"man", "wookiedoo"},
+		{"ether", "wookiedoo"},
 		{"horse", "stallion"},
 		{"shaman", "horse"},
 		{"doge", "coin"},
@@ -120,7 +120,7 @@ func TestNodeIteratorCoverage(t *testing.T) {
 			}
 		}
 	}
-	for _, key := range db.diskdb.(*mandb.MemDatabase).Keys() {
+	for _, key := range db.diskdb.(*ethdb.MemDatabase).Keys() {
 		if _, ok := hashes[common.BytesToHash(key)]; !ok {
 			t.Errorf("state entry not reported %x", key)
 		}
@@ -289,7 +289,7 @@ func TestIteratorContinueAfterErrorDisk(t *testing.T)    { testIteratorContinueA
 func TestIteratorContinueAfterErrorMemonly(t *testing.T) { testIteratorContinueAfterError(t, true) }
 
 func testIteratorContinueAfterError(t *testing.T, memonly bool) {
-	diskdb := mandb.NewMemDatabase()
+	diskdb := ethdb.NewMemDatabase()
 	triedb := NewDatabase(diskdb)
 
 	tr, _ := New(common.Hash{}, triedb)
@@ -376,7 +376,7 @@ func TestIteratorContinueAfterSeekErrorMemonly(t *testing.T) {
 
 func testIteratorContinueAfterSeekError(t *testing.T, memonly bool) {
 	// Commit test trie to db, then remove the node containing "bars".
-	diskdb := mandb.NewMemDatabase()
+	diskdb := ethdb.NewMemDatabase()
 	triedb := NewDatabase(diskdb)
 
 	ctr, _ := New(common.Hash{}, triedb)

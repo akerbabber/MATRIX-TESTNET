@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2018 The go-ethereum Authors
+// This file is part of go-ethereum.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// go-ethereum is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// go-ethereum is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU General Public License
+// along with go-ethereum. If not, see <http://www.gnu.org/licenses/>.
 
 package core
 
@@ -21,24 +21,15 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"regexp"
 
-	"github.com/matrix/go-matrix/common"
+	"github.com/ethereum/go-ethereum/common"
 )
 
 // The validation package contains validation checks for transactions
 // - ABI-data validation
 // - Transaction semantics validation
 // The package provides warnings for typical pitfalls
-
-func (vs *ValidationMessages) crit(msg string) {
-	vs.Messages = append(vs.Messages, ValidationInfo{"CRITICAL", msg})
-}
-func (vs *ValidationMessages) warn(msg string) {
-	vs.Messages = append(vs.Messages, ValidationInfo{"WARNING", msg})
-}
-func (vs *ValidationMessages) info(msg string) {
-	vs.Messages = append(vs.Messages, ValidationInfo{"Info", msg})
-}
 
 type Validator struct {
 	db *AbiDb
@@ -71,6 +62,9 @@ func (v *Validator) validateCallData(msgs *ValidationMessages, data []byte, meth
 	if len(data) < 4 {
 		msgs.warn("Tx contains data which is not valid ABI")
 		return
+	}
+	if arglen := len(data) - 4; arglen%32 != 0 {
+		msgs.warn(fmt.Sprintf("Not ABI-encoded data; length should be a multiple of 32 (was %d)", arglen))
 	}
 	var (
 		info *decodedCallData
@@ -124,10 +118,10 @@ func (v *Validator) validate(msgs *ValidationMessages, txargs *SendTxArgs, metho
 	if txargs.To == nil {
 		//Contract creation should contain sufficient data to deploy a contract
 		// A typical error is omitting sender due to some quirk in the javascript call
-		// e.g. https://github.com/matrix/go-matrix/issues/16106
+		// e.g. https://github.com/ethereum/go-ethereum/issues/16106
 		if len(data) == 0 {
 			if txargs.Value.ToInt().Cmp(big.NewInt(0)) > 0 {
-				// Sending man into black hole
+				// Sending ether into black hole
 				return errors.New("Tx will create contract with value but empty code!")
 			}
 			// No value submitted at least
@@ -160,4 +154,18 @@ func (v *Validator) validate(msgs *ValidationMessages, txargs *SendTxArgs, metho
 func (v *Validator) ValidateTransaction(txArgs *SendTxArgs, methodSelector *string) (*ValidationMessages, error) {
 	msgs := &ValidationMessages{}
 	return msgs, v.validate(msgs, txArgs, methodSelector)
+}
+
+var Printable7BitAscii = regexp.MustCompile("^[A-Za-z0-9!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~ ]+$")
+
+// ValidatePasswordFormat returns an error if the password is too short, or consists of characters
+// outside the range of the printable 7bit ascii set
+func ValidatePasswordFormat(password string) error {
+	if len(password) < 10 {
+		return errors.New("password too short (<10 characters)")
+	}
+	if !Printable7BitAscii.MatchString(password) {
+		return errors.New("password contains invalid characters - only 7bit printable ascii allowed")
+	}
+	return nil
 }

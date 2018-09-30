@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of go-ethereum.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// go-ethereum is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// go-ethereum is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU General Public License
+// along with go-ethereum. If not, see <http://www.gnu.org/licenses/>.
 
 package main
 
@@ -26,14 +26,14 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/log"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/log"
 )
 
 // faucetDockerfile is the Dockerfile required to build a faucet container to
 // grant crypto tokens based on GitHub authentications.
 var faucetDockerfile = `
-FROM matrix/client-go:alltools-latest
+FROM ethereum/client-go:alltools-latest
 
 ADD genesis.json /genesis.json
 ADD account.json /account.json
@@ -42,7 +42,7 @@ ADD account.pass /account.pass
 EXPOSE 8080 30303 30303/udp
 
 ENTRYPOINT [ \
-	"faucet", "--genesis", "/genesis.json", "--network", "{{.NetworkID}}", "--bootnodes", "{{.Bootnodes}}", "--manstats", "{{.Ethstats}}", "--manport", "{{.EthPort}}",     \
+	"faucet", "--genesis", "/genesis.json", "--network", "{{.NetworkID}}", "--bootnodes", "{{.Bootnodes}}", "--ethstats", "{{.Ethstats}}", "--ethport", "{{.EthPort}}",     \
 	"--faucet.name", "{{.FaucetName}}", "--faucet.amount", "{{.FaucetAmount}}", "--faucet.minutes", "{{.FaucetMinutes}}", "--faucet.tiers", "{{.FaucetTiers}}",             \
 	"--account.json", "/account.json", "--account.pass", "/account.pass"                                                                                                    \
 	{{if .CaptchaToken}}, "--captcha.token", "{{.CaptchaToken}}", "--captcha.secret", "{{.CaptchaSecret}}"{{end}}{{if .NoAuth}}, "--noauth"{{end}}                          \
@@ -92,7 +92,7 @@ func deployFaucet(client *sshClient, network string, bootnodes []string, config 
 	template.Must(template.New("").Parse(faucetDockerfile)).Execute(dockerfile, map[string]interface{}{
 		"NetworkID":     config.node.network,
 		"Bootnodes":     strings.Join(bootnodes, ","),
-		"Ethstats":      config.node.manstats,
+		"Ethstats":      config.node.ethstats,
 		"EthPort":       config.node.port,
 		"CaptchaToken":  config.captchaToken,
 		"CaptchaSecret": config.captchaSecret,
@@ -111,7 +111,7 @@ func deployFaucet(client *sshClient, network string, bootnodes []string, config 
 		"VHost":         config.host,
 		"ApiPort":       config.port,
 		"EthPort":       config.node.port,
-		"EthName":       config.node.manstats[:strings.Index(config.node.manstats, ":")],
+		"EthName":       config.node.ethstats[:strings.Index(config.node.ethstats, ":")],
 		"CaptchaToken":  config.captchaToken,
 		"CaptchaSecret": config.captchaSecret,
 		"FaucetAmount":  config.amount,
@@ -133,9 +133,9 @@ func deployFaucet(client *sshClient, network string, bootnodes []string, config 
 
 	// Build and deploy the faucet service
 	if nocache {
-		return nil, client.Stream(fmt.Sprintf("cd %s && docker-compose -p %s build --pull --no-cache && docker-compose -p %s up -d --force-recreate", workdir, network, network))
+		return nil, client.Stream(fmt.Sprintf("cd %s && docker-compose -p %s build --pull --no-cache && docker-compose -p %s up -d --force-recreate --timeout 60", workdir, network, network))
 	}
-	return nil, client.Stream(fmt.Sprintf("cd %s && docker-compose -p %s up -d --build --force-recreate", workdir, network))
+	return nil, client.Stream(fmt.Sprintf("cd %s && docker-compose -p %s up -d --build --force-recreate --timeout 60", workdir, network))
 }
 
 // faucetInfos is returned from a faucet status check to allow reporting various
@@ -158,12 +158,12 @@ func (info *faucetInfos) Report() map[string]string {
 	report := map[string]string{
 		"Website address":              info.host,
 		"Website listener port":        strconv.Itoa(info.port),
-		"Matrix listener port":       strconv.Itoa(info.node.port),
+		"Ethereum listener port":       strconv.Itoa(info.node.port),
 		"Funding amount (base tier)":   fmt.Sprintf("%d Ethers", info.amount),
 		"Funding cooldown (base tier)": fmt.Sprintf("%d mins", info.minutes),
 		"Funding tiers":                strconv.Itoa(info.tiers),
 		"Captha protection":            fmt.Sprintf("%v", info.captchaToken != ""),
-		"Ethstats username":            info.node.manstats,
+		"Ethstats username":            info.node.ethstats,
 	}
 	if info.noauth {
 		report["Debug mode (no auth)"] = "enabled"
@@ -229,7 +229,7 @@ func checkFaucet(client *sshClient, network string) (*faucetInfos, error) {
 		node: &nodeInfos{
 			datadir:  infos.volumes["/root/.faucet"],
 			port:     infos.portmap[infos.envvars["ETH_PORT"]+"/tcp"],
-			manstats: infos.envvars["ETH_NAME"],
+			ethstats: infos.envvars["ETH_NAME"],
 			keyJSON:  keyJSON,
 			keyPass:  keyPass,
 		},

@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of go-ethereum.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// go-ethereum is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// go-ethereum is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU General Public License
+// along with go-ethereum. If not, see <http://www.gnu.org/licenses/>.
 
 // Command bzzup uploads files to the swarm HTTP API.
 package main
@@ -30,8 +30,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/matrix/go-matrix/cmd/utils"
-	swarm "github.com/matrix/go-matrix/swarm/api/client"
+	"github.com/ethereum/go-ethereum/cmd/utils"
+	swarm "github.com/ethereum/go-ethereum/swarm/api/client"
 	"gopkg.in/urfave/cli.v1"
 )
 
@@ -40,12 +40,13 @@ func upload(ctx *cli.Context) {
 	args := ctx.Args()
 	var (
 		bzzapi       = strings.TrimRight(ctx.GlobalString(SwarmApiFlag.Name), "/")
-		recursive    = ctx.GlobalBool(SwarmRecursiveUploadFlag.Name)
+		recursive    = ctx.GlobalBool(SwarmRecursiveFlag.Name)
 		wantManifest = ctx.GlobalBoolT(SwarmWantManifestFlag.Name)
 		defaultPath  = ctx.GlobalString(SwarmUploadDefaultPath.Name)
 		fromStdin    = ctx.GlobalBool(SwarmUpFromStdinFlag.Name)
 		mimeType     = ctx.GlobalString(SwarmUploadMimeType.Name)
 		client       = swarm.NewClient(bzzapi)
+		toEncrypt    = ctx.Bool(SwarmEncryptedFlag.Name)
 		file         string
 	)
 
@@ -76,7 +77,7 @@ func upload(ctx *cli.Context) {
 			utils.Fatalf("Error opening file: %s", err)
 		}
 		defer f.Close()
-		hash, err := client.UploadRaw(f, f.Size)
+		hash, err := client.UploadRaw(f, f.Size, toEncrypt)
 		if err != nil {
 			utils.Fatalf("Upload failed: %s", err)
 		}
@@ -97,7 +98,18 @@ func upload(ctx *cli.Context) {
 			if !recursive {
 				return "", errors.New("Argument is a directory and recursive upload is disabled")
 			}
-			return client.UploadDirectory(file, defaultPath, "")
+			if defaultPath != "" {
+				// construct absolute default path
+				absDefaultPath, _ := filepath.Abs(defaultPath)
+				absFile, _ := filepath.Abs(file)
+				// make sure absolute directory ends with only one "/"
+				// to trim it from absolute default path and get relative default path
+				absFile = strings.TrimRight(absFile, "/") + "/"
+				if absDefaultPath != "" && absFile != "" && strings.HasPrefix(absDefaultPath, absFile) {
+					defaultPath = strings.TrimPrefix(absDefaultPath, absFile)
+				}
+			}
+			return client.UploadDirectory(file, defaultPath, "", toEncrypt)
 		}
 	} else {
 		doUpload = func() (string, error) {
@@ -110,7 +122,7 @@ func upload(ctx *cli.Context) {
 				mimeType = detectMimeType(file)
 			}
 			f.ContentType = mimeType
-			return client.Upload(f, "")
+			return client.Upload(f, "", toEncrypt)
 		}
 	}
 	hash, err := doUpload()
@@ -126,6 +138,12 @@ func upload(ctx *cli.Context) {
 // 3. cleans the path, e.g. /a/b/../c -> /a/c
 // Note, it has limitations, e.g. ~someuser/tmp will not be expanded
 func expandPath(p string) string {
+	if i := strings.Index(p, ":"); i > 0 {
+		return p
+	}
+	if i := strings.Index(p, "@"); i > 0 {
+		return p
+	}
 	if strings.HasPrefix(p, "~/") || strings.HasPrefix(p, "~\\") {
 		if home := homeDir(); home != "" {
 			p = home + p[1:]

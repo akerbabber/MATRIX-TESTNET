@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of go-ethereum.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// go-ethereum is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// go-ethereum is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU General Public License
+// along with go-ethereum. If not, see <http://www.gnu.org/licenses/>.
 
 package main
 
@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/matrix/go-matrix/log"
+	"github.com/ethereum/go-ethereum/log"
 )
 
 // deployWallet creates a new web wallet based on some user input.
@@ -31,8 +31,8 @@ func (w *wizard) deployWallet() {
 		log.Error("No genesis block configured")
 		return
 	}
-	if w.conf.manstats == "" {
-		log.Error("No manstats server configured")
+	if w.conf.ethstats == "" {
+		log.Error("No ethstats server configured")
 		return
 	}
 	// Select the server to interact with
@@ -52,14 +52,14 @@ func (w *wizard) deployWallet() {
 	existed := err == nil
 
 	infos.genesis, _ = json.MarshalIndent(w.conf.Genesis, "", "  ")
-	infos.network = w.conf.Genesis.Config.ChainId.Int64()
+	infos.network = w.conf.Genesis.Config.ChainID.Int64()
 
 	// Figure out which port to listen on
 	fmt.Println()
 	fmt.Printf("Which port should the wallet listen on? (default = %d)\n", infos.webPort)
 	infos.webPort = w.readDefaultInt(infos.webPort)
 
-	// Figure which virtual-host to deploy manstats on
+	// Figure which virtual-host to deploy ethstats on
 	if infos.webHost, err = w.ensureVirtualHost(client, infos.webPort, infos.webHost); err != nil {
 		log.Error("Failed to decide on wallet host", "err", err)
 		return
@@ -84,12 +84,12 @@ func (w *wizard) deployWallet() {
 
 	// Set a proper name to report on the stats page
 	fmt.Println()
-	if infos.manstats == "" {
+	if infos.ethstats == "" {
 		fmt.Printf("What should the wallet be called on the stats page?\n")
-		infos.manstats = w.readString() + ":" + w.conf.manstats
+		infos.ethstats = w.readString() + ":" + w.conf.ethstats
 	} else {
-		fmt.Printf("What should the wallet be called on the stats page? (default = %s)\n", infos.manstats)
-		infos.manstats = w.readDefaultString(infos.manstats) + ":" + w.conf.manstats
+		fmt.Printf("What should the wallet be called on the stats page? (default = %s)\n", infos.ethstats)
+		infos.ethstats = w.readDefaultString(infos.ethstats) + ":" + w.conf.ethstats
 	}
 	// Try to deploy the wallet on the host
 	nocache := false

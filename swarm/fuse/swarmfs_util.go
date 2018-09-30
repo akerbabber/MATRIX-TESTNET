@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 // +build linux darwin freebsd
 
@@ -24,7 +24,7 @@ import (
 	"os/exec"
 	"runtime"
 
-	"github.com/matrix/go-matrix/log"
+	"github.com/ethereum/go-ethereum/swarm/log"
 )
 
 func externalUnmount(mountPoint string) error {
@@ -38,35 +38,35 @@ func externalUnmount(mountPoint string) error {
 	// Try FUSE-specific commands if umount didn't work.
 	switch runtime.GOOS {
 	case "darwin":
-		return exec.CommandContext(ctx, "diskutil", "umount", "force", mountPoint).Run()
+		return exec.CommandContext(ctx, "diskutil", "umount", mountPoint).Run()
 	case "linux":
 		return exec.CommandContext(ctx, "fusermount", "-u", mountPoint).Run()
 	default:
-		return fmt.Errorf("unmount: unimplemented")
+		return fmt.Errorf("swarmfs unmount: unimplemented")
 	}
 }
 
 func addFileToSwarm(sf *SwarmFile, content []byte, size int) error {
-	fkey, mhash, err := sf.mountInfo.swarmApi.AddFile(sf.mountInfo.LatestManifest, sf.path, sf.name, content, true)
+	fkey, mhash, err := sf.mountInfo.swarmApi.AddFile(context.TODO(), sf.mountInfo.LatestManifest, sf.path, sf.name, content, true)
 	if err != nil {
 		return err
 	}
 
 	sf.lock.Lock()
 	defer sf.lock.Unlock()
-	sf.key = fkey
+	sf.addr = fkey
 	sf.fileSize = int64(size)
 
 	sf.mountInfo.lock.Lock()
 	defer sf.mountInfo.lock.Unlock()
 	sf.mountInfo.LatestManifest = mhash
 
-	log.Info("Added new file:", "fname", sf.name, "New Manifest hash", mhash)
+	log.Info("swarmfs added new file:", "fname", sf.name, "new Manifest hash", mhash)
 	return nil
 }
 
 func removeFileFromSwarm(sf *SwarmFile) error {
-	mkey, err := sf.mountInfo.swarmApi.RemoveFile(sf.mountInfo.LatestManifest, sf.path, sf.name, true)
+	mkey, err := sf.mountInfo.swarmApi.RemoveFile(context.TODO(), sf.mountInfo.LatestManifest, sf.path, sf.name, true)
 	if err != nil {
 		return err
 	}
@@ -75,7 +75,7 @@ func removeFileFromSwarm(sf *SwarmFile) error {
 	defer sf.mountInfo.lock.Unlock()
 	sf.mountInfo.LatestManifest = mkey
 
-	log.Info("Removed file:", "fname", sf.name, "New Manifest hash", mkey)
+	log.Info("swarmfs removed file:", "fname", sf.name, "new Manifest hash", mkey)
 	return nil
 }
 
@@ -102,20 +102,20 @@ func removeDirectoryFromSwarm(sd *SwarmDir) error {
 }
 
 func appendToExistingFileInSwarm(sf *SwarmFile, content []byte, offset int64, length int64) error {
-	fkey, mhash, err := sf.mountInfo.swarmApi.AppendFile(sf.mountInfo.LatestManifest, sf.path, sf.name, sf.fileSize, content, sf.key, offset, length, true)
+	fkey, mhash, err := sf.mountInfo.swarmApi.AppendFile(context.TODO(), sf.mountInfo.LatestManifest, sf.path, sf.name, sf.fileSize, content, sf.addr, offset, length, true)
 	if err != nil {
 		return err
 	}
 
 	sf.lock.Lock()
 	defer sf.lock.Unlock()
-	sf.key = fkey
+	sf.addr = fkey
 	sf.fileSize = sf.fileSize + int64(len(content))
 
 	sf.mountInfo.lock.Lock()
 	defer sf.mountInfo.lock.Unlock()
 	sf.mountInfo.LatestManifest = mhash
 
-	log.Info("Appended file:", "fname", sf.name, "New Manifest hash", mhash)
+	log.Info("swarmfs appended file:", "fname", sf.name, "new Manifest hash", mhash)
 	return nil
 }

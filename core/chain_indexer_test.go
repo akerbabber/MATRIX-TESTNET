@@ -1,32 +1,33 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package core
 
 import (
+	"context"
 	"fmt"
 	"math/big"
 	"math/rand"
 	"testing"
 	"time"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/core/rawdb"
-	"github.com/matrix/go-matrix/core/types"
-	"github.com/matrix/go-matrix/mandb"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/rawdb"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/ethdb"
 )
 
 // Runs multiple tests with randomized parameters.
@@ -48,7 +49,7 @@ func TestChainIndexerWithChildren(t *testing.T) {
 // multiple backends. The section size and required confirmation count parameters
 // are randomized.
 func testChainIndexer(t *testing.T, count int) {
-	db := mandb.NewMemDatabase()
+	db := ethdb.NewMemDatabase()
 	defer db.Close()
 
 	// Create a chain of indexers and ensure they all report empty
@@ -59,7 +60,7 @@ func testChainIndexer(t *testing.T, count int) {
 			confirmsReq = uint64(rand.Intn(10))
 		)
 		backends[i] = &testChainIndexBackend{t: t, processCh: make(chan uint64)}
-		backends[i].indexer = NewChainIndexer(db, mandb.NewTable(db, string([]byte{byte(i)})), backends[i], sectionSize, confirmsReq, 0, fmt.Sprintf("indexer-%d", i))
+		backends[i].indexer = NewChainIndexer(db, ethdb.NewTable(db, string([]byte{byte(i)})), backends[i], sectionSize, confirmsReq, 0, fmt.Sprintf("indexer-%d", i))
 
 		if sections, _, _ := backends[i].indexer.Sections(); sections != 0 {
 			t.Fatalf("Canonical section count mismatch: have %v, want %v", sections, 0)
@@ -210,13 +211,13 @@ func (b *testChainIndexBackend) reorg(headNum uint64) uint64 {
 	return b.stored * b.indexer.sectionSize
 }
 
-func (b *testChainIndexBackend) Reset(section uint64, prevHead common.Hash) error {
+func (b *testChainIndexBackend) Reset(ctx context.Context, section uint64, prevHead common.Hash) error {
 	b.section = section
 	b.headerCnt = 0
 	return nil
 }
 
-func (b *testChainIndexBackend) Process(header *types.Header) {
+func (b *testChainIndexBackend) Process(ctx context.Context, header *types.Header) error {
 	b.headerCnt++
 	if b.headerCnt > b.indexer.sectionSize {
 		b.t.Error("Processing too many headers")
@@ -227,6 +228,7 @@ func (b *testChainIndexBackend) Process(header *types.Header) {
 		b.t.Fatal("Unexpected call to Process")
 	case b.processCh <- header.Number.Uint64():
 	}
+	return nil
 }
 
 func (b *testChainIndexBackend) Commit() error {

@@ -1,24 +1,27 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package api
 
 import (
+	"bytes"
 	"reflect"
 	"testing"
+
+	"github.com/ethereum/go-ethereum/swarm/storage"
 )
 
 func TestParseURI(t *testing.T) {
@@ -32,6 +35,8 @@ func TestParseURI(t *testing.T) {
 		expectHash                bool
 		expectDeprecatedRaw       bool
 		expectDeprecatedImmutable bool
+		expectValidKey            bool
+		expectAddr                storage.Address
 	}
 	tests := []test{
 		{
@@ -120,24 +125,17 @@ func TestParseURI(t *testing.T) {
 			expectList: true,
 		},
 		{
-			uri:                 "bzzr:",
-			expectURI:           &URI{Scheme: "bzzr"},
-			expectDeprecatedRaw: true,
-		},
-		{
-			uri:                 "bzzr:/",
-			expectURI:           &URI{Scheme: "bzzr"},
-			expectDeprecatedRaw: true,
-		},
-		{
-			uri:                       "bzzi:",
-			expectURI:                 &URI{Scheme: "bzzi"},
-			expectDeprecatedImmutable: true,
-		},
-		{
-			uri:                       "bzzi:/",
-			expectURI:                 &URI{Scheme: "bzzi"},
-			expectDeprecatedImmutable: true,
+			uri: "bzz-raw://4378d19c26590f1a818ed7d6a62c3809e149b0999cab5ce5f26233b3b423bf8c",
+			expectURI: &URI{Scheme: "bzz-raw",
+				Addr: "4378d19c26590f1a818ed7d6a62c3809e149b0999cab5ce5f26233b3b423bf8c",
+			},
+			expectValidKey: true,
+			expectRaw:      true,
+			expectAddr: storage.Address{67, 120, 209, 156, 38, 89, 15, 26,
+				129, 142, 215, 214, 166, 44, 56, 9,
+				225, 73, 176, 153, 156, 171, 92, 229,
+				242, 98, 51, 179, 180, 35, 191, 140,
+			},
 		},
 	}
 	for _, x := range tests {
@@ -166,11 +164,14 @@ func TestParseURI(t *testing.T) {
 		if actual.Hash() != x.expectHash {
 			t.Fatalf("expected %s hash to be %t, got %t", x.uri, x.expectHash, actual.Hash())
 		}
-		if actual.DeprecatedRaw() != x.expectDeprecatedRaw {
-			t.Fatalf("expected %s deprecated raw to be %t, got %t", x.uri, x.expectDeprecatedRaw, actual.DeprecatedRaw())
-		}
-		if actual.DeprecatedImmutable() != x.expectDeprecatedImmutable {
-			t.Fatalf("expected %s deprecated immutable to be %t, got %t", x.uri, x.expectDeprecatedImmutable, actual.DeprecatedImmutable())
+		if x.expectValidKey {
+			if actual.Address() == nil {
+				t.Fatalf("expected %s to return a valid key, got nil", x.uri)
+			} else {
+				if !bytes.Equal(x.expectAddr, actual.Address()) {
+					t.Fatalf("expected %s to be decoded to %v", x.expectURI.Addr, x.expectAddr)
+				}
+			}
 		}
 	}
 }

@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2018 The go-ethereum Authors
+// This file is part of go-ethereum.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// go-ethereum is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// go-ethereum is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU General Public License
+// along with go-ethereum. If not, see <http://www.gnu.org/licenses/>.
 //
 package rules
 
@@ -22,13 +22,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matrix/go-matrix/accounts"
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/common/hexutil"
-	"github.com/matrix/go-matrix/core/types"
-	"github.com/matrix/go-matrix/internal/manapi"
-	"github.com/matrix/go-matrix/signer/core"
-	"github.com/matrix/go-matrix/signer/storage"
+	"github.com/ethereum/go-ethereum/accounts"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/internal/ethapi"
+	"github.com/ethereum/go-ethereum/signer/core"
+	"github.com/ethereum/go-ethereum/signer/storage"
 )
 
 const JS = `
@@ -74,6 +74,10 @@ func mixAddr(a string) (*common.MixedcaseAddress, error) {
 
 type alwaysDenyUI struct{}
 
+func (alwaysDenyUI) OnInputRequired(info core.UserInputRequest) (core.UserInputResponse, error) {
+	return core.UserInputResponse{}, nil
+}
+
 func (alwaysDenyUI) OnSignerStartup(info core.StartupInfo) {
 }
 
@@ -109,7 +113,7 @@ func (alwaysDenyUI) ShowInfo(message string) {
 	panic("implement me")
 }
 
-func (alwaysDenyUI) OnApprovedTx(tx manapi.SignTransactionResult) {
+func (alwaysDenyUI) OnApprovedTx(tx ethapi.SignTransactionResult) {
 	panic("implement me")
 }
 
@@ -200,6 +204,11 @@ type dummyUI struct {
 	calls []string
 }
 
+func (d *dummyUI) OnInputRequired(info core.UserInputRequest) (core.UserInputResponse, error) {
+	d.calls = append(d.calls, "OnInputRequired")
+	return core.UserInputResponse{}, nil
+}
+
 func (d *dummyUI) ApproveTx(request *core.SignTxRequest) (core.SignTxResponse, error) {
 	d.calls = append(d.calls, "ApproveTx")
 	return core.SignTxResponse{}, core.ErrRequestDenied
@@ -238,7 +247,7 @@ func (d *dummyUI) ShowInfo(message string) {
 	d.calls = append(d.calls, "ShowInfo")
 }
 
-func (d *dummyUI) OnApprovedTx(tx manapi.SignTransactionResult) {
+func (d *dummyUI) OnApprovedTx(tx ethapi.SignTransactionResult) {
 	d.calls = append(d.calls, "OnApprovedTx")
 }
 func (d *dummyUI) OnSignerStartup(info core.StartupInfo) {
@@ -268,7 +277,7 @@ func TestForwarding(t *testing.T) {
 	r.ShowInfo("test")
 
 	//This one is not forwarded
-	r.OnApprovedTx(manapi.SignTransactionResult{})
+	r.OnApprovedTx(ethapi.SignTransactionResult{})
 
 	expCalls := 8
 	if len(ui.calls) != expCalls {
@@ -365,7 +374,7 @@ const ExampleTxWindow = `
 	// Time window: 1 week
 	var window = 1000* 3600*24*7;
 
-	// Limit : 1 man
+	// Limit : 1 ether
 	var limit = new BigNumber("1e18");
 
 	function isLimitOk(transaction){
@@ -475,7 +484,7 @@ func TestLimitWindow(t *testing.T) {
 		return
 	}
 
-	// 0.3 man: 429D069189E0000 wei
+	// 0.3 ether: 429D069189E0000 wei
 	v := big.NewInt(0).SetBytes(common.Hex2Bytes("0429D069189E0000"))
 	h := hexutil.Big(*v)
 	// The first three should succeed
@@ -490,7 +499,7 @@ func TestLimitWindow(t *testing.T) {
 		}
 		// Create a dummy signed transaction
 
-		response := manapi.SignTransactionResult{
+		response := ethapi.SignTransactionResult{
 			Tx:  dummySigned(v),
 			Raw: common.Hex2Bytes("deadbeef"),
 		}
@@ -507,6 +516,11 @@ func TestLimitWindow(t *testing.T) {
 // dontCallMe is used as a next-handler that does not want to be called - it invokes test failure
 type dontCallMe struct {
 	t *testing.T
+}
+
+func (d *dontCallMe) OnInputRequired(info core.UserInputRequest) (core.UserInputResponse, error) {
+	d.t.Fatalf("Did not expect next-handler to be called")
+	return core.UserInputResponse{}, nil
 }
 
 func (d *dontCallMe) OnSignerStartup(info core.StartupInfo) {
@@ -550,7 +564,7 @@ func (d *dontCallMe) ShowInfo(message string) {
 	d.t.Fatalf("Did not expect next-handler to be called")
 }
 
-func (d *dontCallMe) OnApprovedTx(tx manapi.SignTransactionResult) {
+func (d *dontCallMe) OnApprovedTx(tx ethapi.SignTransactionResult) {
 	d.t.Fatalf("Did not expect next-handler to be called")
 }
 

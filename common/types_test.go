@@ -1,25 +1,26 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2015 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package common
 
 import (
+	"database/sql/driver"
 	"encoding/json"
-
 	"math/big"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -125,7 +126,7 @@ func TestAddressHexChecksum(t *testing.T) {
 		Input  string
 		Output string
 	}{
-		// Test cases from https://github.com/matrix/EIPs/blob/master/EIPS/eip-55.md#specification
+		// Test cases from https://github.com/ethereum/EIPs/blob/master/EIPS/eip-55.md#specification
 		{"0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed", "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"},
 		{"0xfb6916095ca1df60bb79ce92ce3ea74c37c5d359", "0xfB6916095ca1df60bB79Ce92cE3Ea74c37c5d359"},
 		{"0xdbf03b407c01e7cd3cbea99509d93f8dddc8c6fb", "0xdbF03B407c01E7cD3CBea99509d93f8DDDC8C6FB"},
@@ -153,7 +154,7 @@ func BenchmarkAddressHex(b *testing.B) {
 
 func TestMixedcaseAccount_Address(t *testing.T) {
 
-	// https://github.com/matrix/EIPs/blob/master/EIPS/eip-55.md
+	// https://github.com/ethereum/EIPs/blob/master/EIPS/eip-55.md
 	// Note: 0X{checksum_addr} is not valid according to spec above
 
 	var res []struct {
@@ -192,4 +193,181 @@ func TestMixedcaseAccount_Address(t *testing.T) {
 
 	}
 
+}
+
+func TestHash_Scan(t *testing.T) {
+	type args struct {
+		src interface{}
+	}
+	tests := []struct {
+		name    string
+		args    args
+		wantErr bool
+	}{
+		{
+			name: "working scan",
+			args: args{src: []byte{
+				0xb2, 0x6f, 0x2b, 0x34, 0x2a, 0xab, 0x24, 0xbc, 0xf6, 0x3e,
+				0xa2, 0x18, 0xc6, 0xa9, 0x27, 0x4d, 0x30, 0xab, 0x9a, 0x15,
+				0xa2, 0x18, 0xc6, 0xa9, 0x27, 0x4d, 0x30, 0xab, 0x9a, 0x15,
+				0x10, 0x00,
+			}},
+			wantErr: false,
+		},
+		{
+			name:    "non working scan",
+			args:    args{src: int64(1234567890)},
+			wantErr: true,
+		},
+		{
+			name: "invalid length scan",
+			args: args{src: []byte{
+				0xb2, 0x6f, 0x2b, 0x34, 0x2a, 0xab, 0x24, 0xbc, 0xf6, 0x3e,
+				0xa2, 0x18, 0xc6, 0xa9, 0x27, 0x4d, 0x30, 0xab, 0x9a, 0x15,
+				0xa2, 0x18, 0xc6, 0xa9, 0x27, 0x4d, 0x30, 0xab, 0x9a, 0x15,
+			}},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := &Hash{}
+			if err := h.Scan(tt.args.src); (err != nil) != tt.wantErr {
+				t.Errorf("Hash.Scan() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if !tt.wantErr {
+				for i := range h {
+					if h[i] != tt.args.src.([]byte)[i] {
+						t.Errorf(
+							"Hash.Scan() didn't scan the %d src correctly (have %X, want %X)",
+							i, h[i], tt.args.src.([]byte)[i],
+						)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestHash_Value(t *testing.T) {
+	b := []byte{
+		0xb2, 0x6f, 0x2b, 0x34, 0x2a, 0xab, 0x24, 0xbc, 0xf6, 0x3e,
+		0xa2, 0x18, 0xc6, 0xa9, 0x27, 0x4d, 0x30, 0xab, 0x9a, 0x15,
+		0xa2, 0x18, 0xc6, 0xa9, 0x27, 0x4d, 0x30, 0xab, 0x9a, 0x15,
+		0x10, 0x00,
+	}
+	var usedH Hash
+	usedH.SetBytes(b)
+	tests := []struct {
+		name    string
+		h       Hash
+		want    driver.Value
+		wantErr bool
+	}{
+		{
+			name:    "Working value",
+			h:       usedH,
+			want:    b,
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tt.h.Value()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Hash.Value() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("Hash.Value() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAddress_Scan(t *testing.T) {
+	type args struct {
+		src interface{}
+	}
+	tests := []struct {
+		name    string
+		args    args
+		wantErr bool
+	}{
+		{
+			name: "working scan",
+			args: args{src: []byte{
+				0xb2, 0x6f, 0x2b, 0x34, 0x2a, 0xab, 0x24, 0xbc, 0xf6, 0x3e,
+				0xa2, 0x18, 0xc6, 0xa9, 0x27, 0x4d, 0x30, 0xab, 0x9a, 0x15,
+			}},
+			wantErr: false,
+		},
+		{
+			name:    "non working scan",
+			args:    args{src: int64(1234567890)},
+			wantErr: true,
+		},
+		{
+			name: "invalid length scan",
+			args: args{src: []byte{
+				0xb2, 0x6f, 0x2b, 0x34, 0x2a, 0xab, 0x24, 0xbc, 0xf6, 0x3e,
+				0xa2, 0x18, 0xc6, 0xa9, 0x27, 0x4d, 0x30, 0xab, 0x9a,
+			}},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := &Address{}
+			if err := a.Scan(tt.args.src); (err != nil) != tt.wantErr {
+				t.Errorf("Address.Scan() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if !tt.wantErr {
+				for i := range a {
+					if a[i] != tt.args.src.([]byte)[i] {
+						t.Errorf(
+							"Address.Scan() didn't scan the %d src correctly (have %X, want %X)",
+							i, a[i], tt.args.src.([]byte)[i],
+						)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestAddress_Value(t *testing.T) {
+	b := []byte{
+		0xb2, 0x6f, 0x2b, 0x34, 0x2a, 0xab, 0x24, 0xbc, 0xf6, 0x3e,
+		0xa2, 0x18, 0xc6, 0xa9, 0x27, 0x4d, 0x30, 0xab, 0x9a, 0x15,
+	}
+	var usedA Address
+	usedA.SetBytes(b)
+	tests := []struct {
+		name    string
+		a       Address
+		want    driver.Value
+		wantErr bool
+	}{
+		{
+			name:    "Working value",
+			a:       usedA,
+			want:    b,
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tt.a.Value()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Address.Value() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("Address.Value() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }

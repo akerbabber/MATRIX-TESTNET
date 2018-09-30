@@ -1,36 +1,33 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2014 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package p2p
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"sync/atomic"
 	"time"
 
-	"github.com/matrix/go-matrix/ca"
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/event"
-	"github.com/matrix/go-matrix/log"
-	"github.com/matrix/go-matrix/p2p/discover"
-	"github.com/matrix/go-matrix/rlp"
-	"github.com/pkg/errors"
+	"github.com/ethereum/go-ethereum/event"
+	"github.com/ethereum/go-ethereum/p2p/enode"
+	"github.com/ethereum/go-ethereum/rlp"
 )
 
 // Msg defines the structure of a p2p message.
@@ -98,78 +95,6 @@ func Send(w MsgWriter, msgcode uint64, data interface{}) error {
 		return err
 	}
 	return w.WriteMsg(Msg{Code: msgcode, Size: uint32(size), Payload: r})
-}
-
-var ErrCanNotFindPeer = errors.New("p2p: can`t find peer")
-
-// SendToSingle send message to single peer.
-func SendToSingle(to discover.NodeID, msgCode uint64, data interface{}) error {
-	peers := ServerP2p.Peers()
-	for _, peer := range peers {
-		if peer.ID() == to {
-			err := Send(peer.MsgReadWriter(), msgCode, data)
-			if err != nil {
-				return err
-			}
-			return nil
-		}
-	}
-
-	return ErrCanNotFindPeer
-}
-
-// SendToGroup send message to a group.
-func SendToGroupWithBackup(to common.RoleType, msgCode uint64, data interface{}) error {
-	ids := ca.GetRolesByGroupWithBackup(to)
-	peers := ServerP2p.Peers()
-	for _, id := range ids {
-		for _, peer := range peers {
-			if id == peer.ID() {
-				err := Send(peer.MsgReadWriter(), msgCode, data)
-				if err != nil {
-					log.Error("send to group with backup", "error:", err)
-				}
-				break
-			}
-		}
-	}
-
-	return nil
-}
-
-// SendToGroup send message to a group.
-func SendToGroup(to common.RoleType, msgCode uint64, data interface{}) error {
-	ids := ca.GetRolesByGroup(to)
-	//log.INFO("message.go", "GetRolesByGroup", ids)
-	peers := ServerP2p.Peers()
-	log.INFO("message.go", "查看所有的 ServerP2P peers Count", len(peers), "目标IDS数量", len(ids), "role", to.String())
-	for _, id := range ids {
-		bSend := false
-		for _, peer := range peers {
-			if id == peer.ID() {
-				err := Send(peer.MsgReadWriter(), msgCode, data)
-				if err != nil {
-					log.ERROR("message.go", "发送消息失败, id", id, "err", err)
-				} else {
-					log.INFO("message.go", "发送消息成功, id", id, "IP", peer.Info().Network.RemoteAddress)
-					bSend = true
-				}
-				break
-			}
-		}
-
-		if bSend == false {
-			selfNodeId, err := ca.ConvertAddressToNodeId(ca.GetAddress())
-			if err != nil {
-				log.ERROR("message.go", "SendToGroup", "转换本地账户到nodeId失败", "地址", ca.GetAddress(), "nodeId", selfNodeId, "err", err)
-			}
-			if selfNodeId != id {
-				log.ERROR("message.go", "该节点未发送成功 nodeId", id)
-			}
-		}
-	}
-
-	return nil
 }
 
 // SendItems writes an RLP with the given code and data elements.
@@ -328,13 +253,13 @@ type msgEventer struct {
 	MsgReadWriter
 
 	feed     *event.Feed
-	peerID   discover.NodeID
+	peerID   enode.ID
 	Protocol string
 }
 
 // newMsgEventer returns a msgEventer which sends message events to the given
 // feed
-func newMsgEventer(rw MsgReadWriter, feed *event.Feed, peerID discover.NodeID, proto string) *msgEventer {
+func newMsgEventer(rw MsgReadWriter, feed *event.Feed, peerID enode.ID, proto string) *msgEventer {
 	return &msgEventer{
 		MsgReadWriter: rw,
 		feed:          feed,

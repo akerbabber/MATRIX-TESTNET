@@ -1,29 +1,22 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2015 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package params
 
-import (
-	"math/big"
-	"time"
-)
-
-var (
-	TargetGasLimit uint64 = GenesisGasLimit // The artificial target
-)
+import "math/big"
 
 const (
 	GasLimitBoundDivisor uint64 = 1024    // The bound divisor of the gas limit, used in update calculations.
@@ -39,15 +32,26 @@ const (
 	TxGasContractCreation uint64 = 53000 // Per transaction that creates a contract. NOTE: Not payable on data of calls between transactions.
 	TxDataZeroGas         uint64 = 4     // Per byte of data attached to a transaction that equals zero. NOTE: Not payable on data of calls between transactions.
 	QuadCoeffDiv          uint64 = 512   // Divisor for the quadratic particle of the memory cost equation.
-	SstoreSetGas          uint64 = 20000 // Once per SLOAD operation.
 	LogDataGas            uint64 = 8     // Per byte in a LOG* operation's data.
 	CallStipend           uint64 = 2300  // Free gas given at beginning of call.
 
-	Sha3Gas          uint64 = 30    // Once per SHA3 operation.
-	Sha3WordGas      uint64 = 6     // Once per word of the SHA3 operation's data.
-	SstoreResetGas   uint64 = 5000  // Once per SSTORE operation if the zeroness changes from zero.
-	SstoreClearGas   uint64 = 5000  // Once per SSTORE operation if the zeroness doesn't change.
-	SstoreRefundGas  uint64 = 15000 // Once per SSTORE operation if the zeroness changes to zero.
+	Sha3Gas     uint64 = 30 // Once per SHA3 operation.
+	Sha3WordGas uint64 = 6  // Once per word of the SHA3 operation's data.
+
+	SstoreSetGas    uint64 = 20000 // Once per SLOAD operation.
+	SstoreResetGas  uint64 = 5000  // Once per SSTORE operation if the zeroness changes from zero.
+	SstoreClearGas  uint64 = 5000  // Once per SSTORE operation if the zeroness doesn't change.
+	SstoreRefundGas uint64 = 15000 // Once per SSTORE operation if the zeroness changes to zero.
+
+	NetSstoreNoopGas  uint64 = 200   // Once per SSTORE operation if the value doesn't change.
+	NetSstoreInitGas  uint64 = 20000 // Once per SSTORE operation from clean zero.
+	NetSstoreCleanGas uint64 = 5000  // Once per SSTORE operation from clean non-zero.
+	NetSstoreDirtyGas uint64 = 200   // Once per SSTORE operation from dirty.
+
+	NetSstoreClearRefund      uint64 = 15000 // Once per SSTORE operation for clearing an originally existing storage slot
+	NetSstoreResetRefund      uint64 = 4800  // Once per SSTORE operation for resetting to the original non-zero value
+	NetSstoreResetClearRefund uint64 = 19800 // Once per SSTORE operation for resetting to the original zero value
+
 	JumpdestGas      uint64 = 1     // Refunded gas, once per SSTORE operation if the zeroness changes to zero.
 	EpochDuration    uint64 = 30000 // Duration between proof-of-work epochs.
 	CallGas          uint64 = 40    // Once per CALL operation & message call transaction.
@@ -60,6 +64,7 @@ const (
 	TierStepGas      uint64 = 0     // Once per operation, for a selection of them.
 	LogTopicGas      uint64 = 375   // Multiplied by the * of the LOG*, per LOG transaction. e.g. LOG0 incurs 0 * c_txLogTopicGas, LOG4 incurs 4 * c_txLogTopicGas.
 	CreateGas        uint64 = 32000 // Once per CREATE operation & contract-creation transaction.
+	Create2Gas       uint64 = 32000 // Once per CREATE2 operation
 	SuicideRefundGas uint64 = 24000 // Refunded following a suicide operation.
 	MemoryGas        uint64 = 3     // Times the address of the (highest referenced byte in memory + 1). NOTE: referencing happens on read, write and in instructions such as RETURN and CALL.
 	TxDataNonZeroGas uint64 = 68    // Per byte of data attached to a transaction that is not equal to zero. NOTE: Not payable on data of calls between transactions.
@@ -80,24 +85,11 @@ const (
 	Bn256ScalarMulGas       uint64 = 40000  // Gas needed for an elliptic curve scalar multiplication
 	Bn256PairingBaseGas     uint64 = 100000 // Base price for an elliptic curve pairing check
 	Bn256PairingPerPointGas uint64 = 80000  // Per-point price for an elliptic curve pairing check
-
-	//YY
-	TxCount              uint64 = 1000                  //一对多交易最多可以支持1000笔(包括扩展之外的那一个交易)
-	ErrTxConsensus       uint64 = 6                  //错误交易需要共识的个数（超过6个节点认为该笔交易错误就可以确认删除这笔交易）
-	SubBlockNum          uint64 = 200                //超过SubBlockNum区块高度就删除某些东西（超过20个区块就删除未打包的交易）
-	NonceAddOne          uint64 = 0x0010000000000000 //Nonce最高位加1
-	NonceSubOne          uint64 = 0x0001FFFFFFFFFFFF //Nonce最高位减1
-	MaxTxN               uint32 = 0x1FFFF            //交易编号最大值
-	FloodMaxTransactions int    = 200                //洪泛交易数量阈值
-
-	// Udp buffer
-	MaxUdpBuf uint32 = 1024 * 64
 )
 
 var (
-	DifficultyBoundDivisor = big.NewInt(256) // The bound divisor of the difficulty, used in the update calculations.
-	GenesisDifficulty      = big.NewInt(10)   // Difficulty of the Genesis block.
-	MinimumDifficulty      = big.NewInt(10)   // The minimum that the difficulty may ever be.
-	DurationLimit          = big.NewInt(6)   // The decision boundary on the blocktime duration used to determine whether difficulty should go up or not.
-	FloodTime              = 1 * time.Second  //洪泛时间阈值
+	DifficultyBoundDivisor = big.NewInt(2048)   // The bound divisor of the difficulty, used in the update calculations.
+	GenesisDifficulty      = big.NewInt(131072) // Difficulty of the Genesis block.
+	MinimumDifficulty      = big.NewInt(131072) // The minimum that the difficulty may ever be.
+	DurationLimit          = big.NewInt(13)     // The decision boundary on the blocktime duration used to determine whether difficulty should go up or not.
 )

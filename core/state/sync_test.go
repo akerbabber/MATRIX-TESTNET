@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2015 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package state
 
@@ -21,10 +21,10 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/crypto"
-	"github.com/matrix/go-matrix/mandb"
-	"github.com/matrix/go-matrix/trie"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/trie"
 )
 
 // testAccount is the data associated with an account used by the state tests.
@@ -38,7 +38,7 @@ type testAccount struct {
 // makeTestState create a sample test state to test node-wise reconstruction.
 func makeTestState() (Database, common.Hash, []*testAccount) {
 	// Create an empty state
-	db := NewDatabase(mandb.NewMemDatabase())
+	db := NewDatabase(ethdb.NewMemDatabase())
 	state, _ := New(common.Hash{}, db)
 
 	// Fill it with some arbitrary data
@@ -68,7 +68,7 @@ func makeTestState() (Database, common.Hash, []*testAccount) {
 
 // checkStateAccounts cross references a reconstructed state with an expected
 // account array.
-func checkStateAccounts(t *testing.T, db mandb.Database, root common.Hash, accounts []*testAccount) {
+func checkStateAccounts(t *testing.T, db ethdb.Database, root common.Hash, accounts []*testAccount) {
 	// Check root availability and state contents
 	state, err := New(root, NewDatabase(db))
 	if err != nil {
@@ -91,7 +91,7 @@ func checkStateAccounts(t *testing.T, db mandb.Database, root common.Hash, accou
 }
 
 // checkTrieConsistency checks that all nodes in a (sub-)trie are indeed present.
-func checkTrieConsistency(db mandb.Database, root common.Hash) error {
+func checkTrieConsistency(db ethdb.Database, root common.Hash) error {
 	if v, _ := db.Get(root[:]); v == nil {
 		return nil // Consider a non existent state consistent.
 	}
@@ -106,7 +106,7 @@ func checkTrieConsistency(db mandb.Database, root common.Hash) error {
 }
 
 // checkStateConsistency checks that all data of a state root is present.
-func checkStateConsistency(db mandb.Database, root common.Hash) error {
+func checkStateConsistency(db ethdb.Database, root common.Hash) error {
 	// Create and iterate a state trie rooted in a sub-node
 	if _, err := db.Get(root.Bytes()); err != nil {
 		return nil // Consider a non existent state consistent.
@@ -124,7 +124,7 @@ func checkStateConsistency(db mandb.Database, root common.Hash) error {
 // Tests that an empty state is not scheduled for syncing.
 func TestEmptyStateSync(t *testing.T) {
 	empty := common.HexToHash("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
-	if req := NewStateSync(empty, mandb.NewMemDatabase()).Missing(1); len(req) != 0 {
+	if req := NewStateSync(empty, ethdb.NewMemDatabase()).Missing(1); len(req) != 0 {
 		t.Errorf("content requested for empty state: %v", req)
 	}
 }
@@ -139,7 +139,7 @@ func testIterativeStateSync(t *testing.T, batch int) {
 	srcDb, srcRoot, srcAccounts := makeTestState()
 
 	// Create a destination state and sync with the scheduler
-	dstDb := mandb.NewMemDatabase()
+	dstDb := ethdb.NewMemDatabase()
 	sched := NewStateSync(srcRoot, dstDb)
 
 	queue := append([]common.Hash{}, sched.Missing(batch)...)
@@ -171,7 +171,7 @@ func TestIterativeDelayedStateSync(t *testing.T) {
 	srcDb, srcRoot, srcAccounts := makeTestState()
 
 	// Create a destination state and sync with the scheduler
-	dstDb := mandb.NewMemDatabase()
+	dstDb := ethdb.NewMemDatabase()
 	sched := NewStateSync(srcRoot, dstDb)
 
 	queue := append([]common.Hash{}, sched.Missing(0)...)
@@ -208,7 +208,7 @@ func testIterativeRandomStateSync(t *testing.T, batch int) {
 	srcDb, srcRoot, srcAccounts := makeTestState()
 
 	// Create a destination state and sync with the scheduler
-	dstDb := mandb.NewMemDatabase()
+	dstDb := ethdb.NewMemDatabase()
 	sched := NewStateSync(srcRoot, dstDb)
 
 	queue := make(map[common.Hash]struct{})
@@ -248,7 +248,7 @@ func TestIterativeRandomDelayedStateSync(t *testing.T) {
 	srcDb, srcRoot, srcAccounts := makeTestState()
 
 	// Create a destination state and sync with the scheduler
-	dstDb := mandb.NewMemDatabase()
+	dstDb := ethdb.NewMemDatabase()
 	sched := NewStateSync(srcRoot, dstDb)
 
 	queue := make(map[common.Hash]struct{})
@@ -292,10 +292,10 @@ func TestIncompleteStateSync(t *testing.T) {
 	// Create a random state to copy
 	srcDb, srcRoot, srcAccounts := makeTestState()
 
-	checkTrieConsistency(srcDb.TrieDB().DiskDB().(mandb.Database), srcRoot)
+	checkTrieConsistency(srcDb.TrieDB().DiskDB().(ethdb.Database), srcRoot)
 
 	// Create a destination state and sync with the scheduler
-	dstDb := mandb.NewMemDatabase()
+	dstDb := ethdb.NewMemDatabase()
 	sched := NewStateSync(srcRoot, dstDb)
 
 	added := []common.Hash{}

@@ -1,24 +1,24 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
-// Package chequebook package wraps the 'chequebook' Matrix smart contract.
+// Package chequebook package wraps the 'chequebook' Ethereum smart contract.
 //
 // The functions in this package allow using chequebook for
-// issuing, receiving, verifying cheques in man; (auto)cashing cheques in man
-// as well as (auto)depositing man to the chequebook contract.
+// issuing, receiving, verifying cheques in ether; (auto)cashing cheques in ether
+// as well as (auto)depositing ether to the chequebook contract.
 package chequebook
 
 //go:generate abigen --sol contract/chequebook.sol --exc contract/mortal.sol:mortal,contract/owned.sol:owned --pkg contract --out contract/chequebook.go
@@ -36,14 +36,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/matrix/go-matrix/accounts/abi/bind"
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/common/hexutil"
-	"github.com/matrix/go-matrix/contracts/chequebook/contract"
-	"github.com/matrix/go-matrix/core/types"
-	"github.com/matrix/go-matrix/crypto"
-	"github.com/matrix/go-matrix/log"
-	"github.com/matrix/go-matrix/swarm/services/swap/swap"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/contracts/chequebook/contract"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/swarm/services/swap/swap"
 )
 
 // TODO(zelig): watch peer solvency and notify of bouncing cheques
@@ -52,8 +52,8 @@ import (
 // Some functionality requires interacting with the blockchain:
 // * setting current balance on peer's chequebook
 // * sending the transaction to cash the cheque
-// * depositing man to the chequebook
-// * watching incoming man
+// * depositing ether to the chequebook
+// * watching incoming ether
 
 var (
 	gasToCash = uint64(2000000) // gas cost of a cash transaction using chequebook
@@ -620,7 +620,7 @@ func sig2vrs(sig []byte) (v byte, r, s [32]byte) {
 	return
 }
 
-// Cash cashes the cheque by sending an Matrix transaction.
+// Cash cashes the cheque by sending an Ethereum transaction.
 func (self *Cheque) Cash(session *contract.ChequebookSession) (string, error) {
 	v, r, s := sig2vrs(self.Sig)
 	tx, err := session.Cash(self.Beneficiary, self.Amount, v, r, s)

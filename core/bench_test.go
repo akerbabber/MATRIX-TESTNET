@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2015 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package core
 
@@ -23,15 +23,15 @@ import (
 	"os"
 	"testing"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/common/math"
-	"github.com/matrix/go-matrix/consensus/manash"
-	"github.com/matrix/go-matrix/core/rawdb"
-	"github.com/matrix/go-matrix/core/types"
-	"github.com/matrix/go-matrix/core/vm"
-	"github.com/matrix/go-matrix/crypto"
-	"github.com/matrix/go-matrix/mandb"
-	"github.com/matrix/go-matrix/params"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/math"
+	"github.com/ethereum/go-ethereum/consensus/ethash"
+	"github.com/ethereum/go-ethereum/core/rawdb"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/params"
 )
 
 func BenchmarkInsertChain_empty_memdb(b *testing.B) {
@@ -105,13 +105,14 @@ func init() {
 	}
 }
 
-// genTxRing returns a block generator that sends man in a ring
+// genTxRing returns a block generator that sends ether in a ring
 // among n accounts. This is creates n entries in the state database
 // and fills the blocks with many small transactions.
 func genTxRing(naccounts int) func(int, *BlockGen) {
 	from := 0
 	return func(i int, gen *BlockGen) {
-		gas := CalcGasLimit(gen.PrevBlock(i - 1))
+		block := gen.PrevBlock(i - 1)
+		gas := CalcGasLimit(block, block.GasLimit(), block.GasLimit())
 		for {
 			gas -= params.TxGas
 			if gas < params.TxGas {
@@ -147,16 +148,16 @@ func genUncles(i int, gen *BlockGen) {
 
 func benchInsertChain(b *testing.B, disk bool, gen func(int, *BlockGen)) {
 	// Create the database in memory or in a temporary directory.
-	var db mandb.Database
+	var db ethdb.Database
 	if !disk {
-		db = mandb.NewMemDatabase()
+		db = ethdb.NewMemDatabase()
 	} else {
-		dir, err := ioutil.TempDir("", "man-core-bench")
+		dir, err := ioutil.TempDir("", "eth-core-bench")
 		if err != nil {
 			b.Fatalf("cannot create temporary directory: %v", err)
 		}
 		defer os.RemoveAll(dir)
-		db, err = mandb.NewLDBDatabase(dir, 128, 128)
+		db, err = ethdb.NewLDBDatabase(dir, 128, 128)
 		if err != nil {
 			b.Fatalf("cannot create temporary database: %v", err)
 		}
@@ -170,11 +171,11 @@ func benchInsertChain(b *testing.B, disk bool, gen func(int, *BlockGen)) {
 		Alloc:  GenesisAlloc{benchRootAddr: {Balance: benchRootFunds}},
 	}
 	genesis := gspec.MustCommit(db)
-	chain, _ := GenerateChain(gspec.Config, genesis, manash.NewFaker(), db, b.N, gen)
+	chain, _ := GenerateChain(gspec.Config, genesis, ethash.NewFaker(), db, b.N, gen)
 
 	// Time the insertion of the new chain.
 	// State and blocks are stored in the same DB.
-	chainman, _ := NewBlockChain(db, nil, gspec.Config, manash.NewFaker(), vm.Config{})
+	chainman, _ := NewBlockChain(db, nil, gspec.Config, ethash.NewFaker(), vm.Config{}, nil)
 	defer chainman.Stop()
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -222,7 +223,7 @@ func BenchmarkChainWrite_full_500k(b *testing.B) {
 
 // makeChainForBench writes a given number of headers or empty blocks/receipts
 // into a database.
-func makeChainForBench(db mandb.Database, full bool, count uint64) {
+func makeChainForBench(db ethdb.Database, full bool, count uint64) {
 	var hash common.Hash
 	for n := uint64(0); n < count; n++ {
 		header := &types.Header{
@@ -250,11 +251,11 @@ func makeChainForBench(db mandb.Database, full bool, count uint64) {
 
 func benchWriteChain(b *testing.B, full bool, count uint64) {
 	for i := 0; i < b.N; i++ {
-		dir, err := ioutil.TempDir("", "man-chain-bench")
+		dir, err := ioutil.TempDir("", "eth-chain-bench")
 		if err != nil {
 			b.Fatalf("cannot create temporary directory: %v", err)
 		}
-		db, err := mandb.NewLDBDatabase(dir, 128, 1024)
+		db, err := ethdb.NewLDBDatabase(dir, 128, 1024)
 		if err != nil {
 			b.Fatalf("error opening database at %v: %v", dir, err)
 		}
@@ -265,13 +266,13 @@ func benchWriteChain(b *testing.B, full bool, count uint64) {
 }
 
 func benchReadChain(b *testing.B, full bool, count uint64) {
-	dir, err := ioutil.TempDir("", "man-chain-bench")
+	dir, err := ioutil.TempDir("", "eth-chain-bench")
 	if err != nil {
 		b.Fatalf("cannot create temporary directory: %v", err)
 	}
 	defer os.RemoveAll(dir)
 
-	db, err := mandb.NewLDBDatabase(dir, 128, 1024)
+	db, err := ethdb.NewLDBDatabase(dir, 128, 1024)
 	if err != nil {
 		b.Fatalf("error opening database at %v: %v", dir, err)
 	}
@@ -282,11 +283,11 @@ func benchReadChain(b *testing.B, full bool, count uint64) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		db, err := mandb.NewLDBDatabase(dir, 128, 1024)
+		db, err := ethdb.NewLDBDatabase(dir, 128, 1024)
 		if err != nil {
 			b.Fatalf("error opening database at %v: %v", dir, err)
 		}
-		chain, err := NewBlockChain(db, nil, params.TestChainConfig, manash.NewFaker(), vm.Config{})
+		chain, err := NewBlockChain(db, nil, params.TestChainConfig, ethash.NewFaker(), vm.Config{}, nil)
 		if err != nil {
 			b.Fatalf("error creating chain: %v", err)
 		}

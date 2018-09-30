@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2018 The go-ethereum Authors
+// This file is part of go-ethereum.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// go-ethereum is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// go-ethereum is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU General Public License
+// along with go-ethereum. If not, see <http://www.gnu.org/licenses/>.
 
 package core
 
@@ -25,33 +25,36 @@ import (
 	"math/big"
 	"reflect"
 
-	"github.com/matrix/go-matrix/accounts"
-	"github.com/matrix/go-matrix/accounts/keystore"
-	"github.com/matrix/go-matrix/accounts/usbwallet"
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/common/hexutil"
-	"github.com/matrix/go-matrix/crypto"
-	"github.com/matrix/go-matrix/internal/manapi"
-	"github.com/matrix/go-matrix/log"
-	"github.com/matrix/go-matrix/rlp"
+	"github.com/ethereum/go-ethereum/accounts"
+	"github.com/ethereum/go-ethereum/accounts/keystore"
+	"github.com/ethereum/go-ethereum/accounts/usbwallet"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/internal/ethapi"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/rlp"
 )
+
+// numberOfAccountsToDerive For hardware wallets, the number of accounts to derive
+const numberOfAccountsToDerive = 10
 
 // ExternalAPI defines the external API through which signing requests are made.
 type ExternalAPI interface {
 	// List available accounts
-	List(ctx context.Context) (Accounts, error)
+	List(ctx context.Context) ([]common.Address, error)
 	// New request to create a new account
 	New(ctx context.Context) (accounts.Account, error)
 	// SignTransaction request to sign the specified transaction
-	SignTransaction(ctx context.Context, args SendTxArgs, methodSelector *string) (*manapi.SignTransactionResult, error)
+	SignTransaction(ctx context.Context, args SendTxArgs, methodSelector *string) (*ethapi.SignTransactionResult, error)
 	// Sign - request to sign the given data (plus prefix)
 	Sign(ctx context.Context, addr common.MixedcaseAddress, data hexutil.Bytes) (hexutil.Bytes, error)
-	// EcRecover - request to perform ecrecover
-	EcRecover(ctx context.Context, data, sig hexutil.Bytes) (common.Address, error)
 	// Export - request to export an account
 	Export(ctx context.Context, addr common.Address) (json.RawMessage, error)
 	// Import - request to import an account
-	Import(ctx context.Context, keyJSON json.RawMessage) (Account, error)
+	// Should be moved to Internal API, in next phase when we have
+	// bi-directional communication
+	//Import(ctx context.Context, keyJSON json.RawMessage) (Account, error)
 }
 
 // SignerUI specifies what method a UI needs to implement to be able to be used as a UI for the signer
@@ -75,30 +78,36 @@ type SignerUI interface {
 	ShowInfo(message string)
 	// OnApprovedTx notifies the UI about a transaction having been successfully signed.
 	// This method can be used by a UI to keep track of e.g. how much has been sent to a particular recipient.
-	OnApprovedTx(tx manapi.SignTransactionResult)
+	OnApprovedTx(tx ethapi.SignTransactionResult)
 	// OnSignerStartup is invoked when the signer boots, and tells the UI info about external API location and version
 	// information
 	OnSignerStartup(info StartupInfo)
+	// OnInputRequried is invoked when clef requires user input, for example master password or
+	// pin-code for unlocking hardware wallets
+	OnInputRequired(info UserInputRequest) (UserInputResponse, error)
 }
 
 // SignerAPI defines the actual implementation of ExternalAPI
 type SignerAPI struct {
-	chainID   *big.Int
-	am        *accounts.Manager
-	UI        SignerUI
-	validator *Validator
+	chainID    *big.Int
+	am         *accounts.Manager
+	UI         SignerUI
+	validator  *Validator
+	rejectMode bool
 }
 
 // Metadata about a request
 type Metadata struct {
-	Remote string `json:"remote"`
-	Local  string `json:"local"`
-	Scheme string `json:"scheme"`
+	Remote    string `json:"remote"`
+	Local     string `json:"local"`
+	Scheme    string `json:"scheme"`
+	UserAgent string `json:"User-Agent"`
+	Origin    string `json:"Origin"`
 }
 
 // MetadataFromContext extracts Metadata from a given context.Context
 func MetadataFromContext(ctx context.Context) Metadata {
-	m := Metadata{"NA", "NA", "NA"} // batman
+	m := Metadata{"NA", "NA", "NA", "", ""} // batman
 
 	if v := ctx.Value("remote"); v != nil {
 		m.Remote = v.(string)
@@ -108,6 +117,12 @@ func MetadataFromContext(ctx context.Context) Metadata {
 	}
 	if v := ctx.Value("local"); v != nil {
 		m.Local = v.(string)
+	}
+	if v := ctx.Value("Origin"); v != nil {
+		m.Origin = v.(string)
+	}
+	if v := ctx.Value("User-Agent"); v != nil {
+		m.UserAgent = v.(string)
 	}
 	return m
 }
@@ -185,25 +200,24 @@ type (
 	StartupInfo struct {
 		Info map[string]interface{} `json:"info"`
 	}
+	UserInputRequest struct {
+		Prompt     string `json:"prompt"`
+		Title      string `json:"title"`
+		IsPassword bool   `json:"isPassword"`
+	}
+	UserInputResponse struct {
+		Text string `json:"text"`
+	}
 )
 
 var ErrRequestDenied = errors.New("Request denied")
-
-type errorWrapper struct {
-	msg string
-	err error
-}
-
-func (ew errorWrapper) String() string {
-	return fmt.Sprintf("%s\n%s", ew.msg, ew.err)
-}
 
 // NewSignerAPI creates a new API that can be used for Account management.
 // ksLocation specifies the directory where to store the password protected private
 // key that is generated when a new Account is created.
 // noUSB disables USB support that is required to support hardware devices such as
 // ledger and trezor.
-func NewSignerAPI(chainID int64, ksLocation string, noUSB bool, ui SignerUI, abidb *AbiDb, lightKDF bool) *SignerAPI {
+func NewSignerAPI(chainID int64, ksLocation string, noUSB bool, ui SignerUI, abidb *AbiDb, lightKDF bool, advancedMode bool) *SignerAPI {
 	var (
 		backends []accounts.Backend
 		n, p     = keystore.StandardScryptN, keystore.StandardScryptP
@@ -214,6 +228,9 @@ func NewSignerAPI(chainID int64, ksLocation string, noUSB bool, ui SignerUI, abi
 	// support password based accounts
 	if len(ksLocation) > 0 {
 		backends = append(backends, keystore.NewKeyStore(ksLocation, n, p))
+	}
+	if advancedMode {
+		log.Info("Clef is in advanced mode: will warn instead of reject")
 	}
 	if !noUSB {
 		// Start a USB hub for Ledger hardware wallets
@@ -231,12 +248,99 @@ func NewSignerAPI(chainID int64, ksLocation string, noUSB bool, ui SignerUI, abi
 			log.Debug("Trezor support enabled")
 		}
 	}
-	return &SignerAPI{big.NewInt(chainID), accounts.NewManager(backends...), ui, NewValidator(abidb)}
+	signer := &SignerAPI{big.NewInt(chainID), accounts.NewManager(backends...), ui, NewValidator(abidb), !advancedMode}
+	if !noUSB {
+		signer.startUSBListener()
+	}
+	return signer
+}
+func (api *SignerAPI) openTrezor(url accounts.URL) {
+	resp, err := api.UI.OnInputRequired(UserInputRequest{
+		Prompt: "Pin required to open Trezor wallet\n" +
+			"Look at the device for number positions\n\n" +
+			"7 | 8 | 9\n" +
+			"--+---+--\n" +
+			"4 | 5 | 6\n" +
+			"--+---+--\n" +
+			"1 | 2 | 3\n\n",
+		IsPassword: true,
+		Title:      "Trezor unlock",
+	})
+	if err != nil {
+		log.Warn("failed getting trezor pin", "err", err)
+		return
+	}
+	// We're using the URL instead of the pointer to the
+	// Wallet -- perhaps it is not actually present anymore
+	w, err := api.am.Wallet(url.String())
+	if err != nil {
+		log.Warn("wallet unavailable", "url", url)
+		return
+	}
+	err = w.Open(resp.Text)
+	if err != nil {
+		log.Warn("failed to open wallet", "wallet", url, "err", err)
+		return
+	}
+
+}
+
+// startUSBListener starts a listener for USB events, for hardware wallet interaction
+func (api *SignerAPI) startUSBListener() {
+	events := make(chan accounts.WalletEvent, 16)
+	am := api.am
+	am.Subscribe(events)
+	go func() {
+
+		// Open any wallets already attached
+		for _, wallet := range am.Wallets() {
+			if err := wallet.Open(""); err != nil {
+				log.Warn("Failed to open wallet", "url", wallet.URL(), "err", err)
+				if err == usbwallet.ErrTrezorPINNeeded {
+					go api.openTrezor(wallet.URL())
+				}
+			}
+		}
+		// Listen for wallet event till termination
+		for event := range events {
+			switch event.Kind {
+			case accounts.WalletArrived:
+				if err := event.Wallet.Open(""); err != nil {
+					log.Warn("New wallet appeared, failed to open", "url", event.Wallet.URL(), "err", err)
+					if err == usbwallet.ErrTrezorPINNeeded {
+						go api.openTrezor(event.Wallet.URL())
+					}
+				}
+			case accounts.WalletOpened:
+				status, _ := event.Wallet.Status()
+				log.Info("New wallet appeared", "url", event.Wallet.URL(), "status", status)
+
+				derivationPath := accounts.DefaultBaseDerivationPath
+				if event.Wallet.URL().Scheme == "ledger" {
+					derivationPath = accounts.DefaultLedgerBaseDerivationPath
+				}
+				var nextPath = derivationPath
+				// Derive first N accounts, hardcoded for now
+				for i := 0; i < numberOfAccountsToDerive; i++ {
+					acc, err := event.Wallet.Derive(nextPath, true)
+					if err != nil {
+						log.Warn("account derivation failed", "error", err)
+					} else {
+						log.Info("derived account", "address", acc.Address)
+					}
+					nextPath[len(nextPath)-1]++
+				}
+			case accounts.WalletDropped:
+				log.Info("Old wallet dropped", "url", event.Wallet.URL())
+				event.Wallet.Close()
+			}
+		}
+	}()
 }
 
 // List returns the set of wallet this signer manages. Each wallet can contain
 // multiple accounts.
-func (api *SignerAPI) List(ctx context.Context) (Accounts, error) {
+func (api *SignerAPI) List(ctx context.Context) ([]common.Address, error) {
 	var accs []Account
 	for _, wallet := range api.am.Wallets() {
 		for _, acc := range wallet.Accounts() {
@@ -252,7 +356,13 @@ func (api *SignerAPI) List(ctx context.Context) (Accounts, error) {
 		return nil, ErrRequestDenied
 
 	}
-	return result.Accounts, nil
+
+	addresses := make([]common.Address, 0)
+	for _, acc := range result.Accounts {
+		addresses = append(addresses, acc.Address)
+	}
+
+	return addresses, nil
 }
 
 // New creates a new password protected Account. The private key is protected with
@@ -263,15 +373,28 @@ func (api *SignerAPI) New(ctx context.Context) (accounts.Account, error) {
 	if len(be) == 0 {
 		return accounts.Account{}, errors.New("password based accounts not supported")
 	}
-	resp, err := api.UI.ApproveNewAccount(&NewAccountRequest{MetadataFromContext(ctx)})
-
-	if err != nil {
-		return accounts.Account{}, err
+	var (
+		resp NewAccountResponse
+		err  error
+	)
+	// Three retries to get a valid password
+	for i := 0; i < 3; i++ {
+		resp, err = api.UI.ApproveNewAccount(&NewAccountRequest{MetadataFromContext(ctx)})
+		if err != nil {
+			return accounts.Account{}, err
+		}
+		if !resp.Approved {
+			return accounts.Account{}, ErrRequestDenied
+		}
+		if pwErr := ValidatePasswordFormat(resp.Password); pwErr != nil {
+			api.UI.ShowError(fmt.Sprintf("Account creation attempt #%d failed due to password requirements: %v", (i + 1), pwErr))
+		} else {
+			// No error
+			return be[0].(*keystore.KeyStore).NewAccount(resp.Password)
+		}
 	}
-	if !resp.Approved {
-		return accounts.Account{}, ErrRequestDenied
-	}
-	return be[0].(*keystore.KeyStore).NewAccount(resp.Password)
+	// Otherwise fail, with generic error message
+	return accounts.Account{}, errors.New("account creation failed")
 }
 
 // logDiff logs the difference between the incoming (original) transaction and the one returned from the signer.
@@ -303,10 +426,10 @@ func logDiff(original *SignTxRequest, new *SignTxResponse) bool {
 		d0s := ""
 		d1s := ""
 		if d0 != nil {
-			d0s = common.ToHex(*d0)
+			d0s = hexutil.Encode(*d0)
 		}
 		if d1 != nil {
-			d1s = common.ToHex(*d1)
+			d1s = hexutil.Encode(*d1)
 		}
 		if d1s != d0s {
 			modified = true
@@ -321,7 +444,7 @@ func logDiff(original *SignTxRequest, new *SignTxResponse) bool {
 }
 
 // SignTransaction signs the given Transaction and returns it both as json and rlp-encoded form
-func (api *SignerAPI) SignTransaction(ctx context.Context, args SendTxArgs, methodSelector *string) (*manapi.SignTransactionResult, error) {
+func (api *SignerAPI) SignTransaction(ctx context.Context, args SendTxArgs, methodSelector *string) (*ethapi.SignTransactionResult, error) {
 	var (
 		err    error
 		result SignTxResponse
@@ -329,6 +452,12 @@ func (api *SignerAPI) SignTransaction(ctx context.Context, args SendTxArgs, meth
 	msgs, err := api.validator.ValidateTransaction(&args, methodSelector)
 	if err != nil {
 		return nil, err
+	}
+	// If we are in 'rejectMode', then reject rather than show the user warnings
+	if api.rejectMode {
+		if err := msgs.getWarnings(); err != nil {
+			return nil, err
+		}
 	}
 
 	req := SignTxRequest{
@@ -366,7 +495,7 @@ func (api *SignerAPI) SignTransaction(ctx context.Context, args SendTxArgs, meth
 	}
 
 	rlpdata, err := rlp.EncodeToBytes(signedTx)
-	response := manapi.SignTransactionResult{Raw: rlpdata, Tx: signedTx}
+	response := ethapi.SignTransactionResult{Raw: rlpdata, Tx: signedTx}
 
 	// Finally, send the signed tx to the UI
 	api.UI.OnApprovedTx(response)
@@ -375,15 +504,15 @@ func (api *SignerAPI) SignTransaction(ctx context.Context, args SendTxArgs, meth
 
 }
 
-// Sign calculates an Matrix ECDSA signature for:
-// keccack256("\x19Matrix Signed Message:\n" + len(message) + message))
+// Sign calculates an Ethereum ECDSA signature for:
+// keccack256("\x19Ethereum Signed Message:\n" + len(message) + message))
 //
 // Note, the produced signature conforms to the secp256k1 curve R, S and V values,
 // where the V value will be 27 or 28 for legacy reasons.
 //
 // The key used to calculate the signature is decrypted with the given password.
 //
-// https://github.com/matrix/go-matrix/wiki/Management-APIs#personal_sign
+// https://github.com/ethereum/go-ethereum/wiki/Management-APIs#personal_sign
 func (api *SignerAPI) Sign(ctx context.Context, addr common.MixedcaseAddress, data hexutil.Bytes) (hexutil.Bytes, error) {
 	sighash, msg := SignHash(data)
 	// We make the request prior to looking up if we actually have the account, to prevent
@@ -413,43 +542,15 @@ func (api *SignerAPI) Sign(ctx context.Context, addr common.MixedcaseAddress, da
 	return signature, nil
 }
 
-// EcRecover returns the address for the Account that was used to create the signature.
-// Note, this function is compatible with man_sign and personal_sign. As such it recovers
-// the address of:
-// hash = keccak256("\x19Matrix Signed Message:\n"${message length}${message})
-// addr = ecrecover(hash, signature)
-//
-// Note, the signature must conform to the secp256k1 curve R, S and V values, where
-// the V value must be be 27 or 28 for legacy reasons.
-//
-// https://github.com/matrix/go-matrix/wiki/Management-APIs#personal_ecRecover
-func (api *SignerAPI) EcRecover(ctx context.Context, data, sig hexutil.Bytes) (common.Address, error) {
-	if len(sig) != 65 {
-		return common.Address{}, fmt.Errorf("signature must be 65 bytes long")
-	}
-	if sig[64] != 27 && sig[64] != 28 {
-		return common.Address{}, fmt.Errorf("invalid Matrix signature (V is not 27 or 28)")
-	}
-	sig[64] -= 27 // Transform yellow paper V from 27/28 to 0/1
-	hash, _ := SignHash(data)
-	rpk, err := crypto.Ecrecover(hash, sig)
-	if err != nil {
-		return common.Address{}, err
-	}
-	pubKey := crypto.ToECDSAPub(rpk)
-	recoveredAddr := crypto.PubkeyToAddress(*pubKey)
-	return recoveredAddr, nil
-}
-
 // SignHash is a helper function that calculates a hash for the given message that can be
 // safely used to calculate a signature from.
 //
 // The hash is calculated as
-//   keccak256("\x19Matrix Signed Message:\n"${message length}${message}).
+//   keccak256("\x19Ethereum Signed Message:\n"${message length}${message}).
 //
 // This gives context to the signed message and prevents signing of transactions.
 func SignHash(data []byte) ([]byte, string) {
-	msg := fmt.Sprintf("\x19Matrix Signed Message:\n%d%s", len(data), data)
+	msg := fmt.Sprintf("\x19Ethereum Signed Message:\n%d%s", len(data), data)
 	return crypto.Keccak256([]byte(msg)), msg
 }
 
@@ -477,6 +578,11 @@ func (api *SignerAPI) Export(ctx context.Context, addr common.Address) (json.Raw
 // Import tries to import the given keyJSON in the local keystore. The keyJSON data is expected to be
 // in web3 keystore format. It will decrypt the keyJSON with the given passphrase and on successful
 // decryption it will encrypt the key with the given newPassphrase and store it in the keystore.
+// OBS! This method is removed from the public API. It should not be exposed on the external API
+// for a couple of reasons:
+// 1. Even though it is encrypted, it should still be seen as sensitive data
+// 2. It can be used to DoS clef, by using malicious data with e.g. extreme large
+// values for the kdfparams.
 func (api *SignerAPI) Import(ctx context.Context, keyJSON json.RawMessage) (Account, error) {
 	be := api.am.Backends(keystore.KeyStoreType)
 

@@ -1,21 +1,21 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 // Package light implements on-demand retrieval capable state and chain objects
-// for the Matrix Light Client.
+// for the Ethereum Light Client.
 package les
 
 import (
@@ -23,15 +23,15 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/core/rawdb"
-	"github.com/matrix/go-matrix/core/types"
-	"github.com/matrix/go-matrix/crypto"
-	"github.com/matrix/go-matrix/mandb"
-	"github.com/matrix/go-matrix/light"
-	"github.com/matrix/go-matrix/log"
-	"github.com/matrix/go-matrix/rlp"
-	"github.com/matrix/go-matrix/trie"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/rawdb"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/light"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/ethereum/go-ethereum/trie"
 )
 
 var (
@@ -51,7 +51,7 @@ type LesOdrRequest interface {
 	GetCost(*peer) uint64
 	CanSend(*peer) bool
 	Request(uint64, *peer) error
-	Validate(mandb.Database, *Msg) error
+	Validate(ethdb.Database, *Msg) error
 }
 
 func LesRequest(req light.OdrRequest) LesOdrRequest {
@@ -96,7 +96,7 @@ func (r *BlockRequest) Request(reqID uint64, peer *peer) error {
 // Valid processes an ODR request reply message from the LES network
 // returns true and stores results in memory if the message was a valid reply
 // to the request (implementation of LesOdrRequest)
-func (r *BlockRequest) Validate(db mandb.Database, msg *Msg) error {
+func (r *BlockRequest) Validate(db ethdb.Database, msg *Msg) error {
 	log.Debug("Validating block body", "hash", r.Hash)
 
 	// Ensure we have a correct message with a single block body
@@ -152,7 +152,7 @@ func (r *ReceiptsRequest) Request(reqID uint64, peer *peer) error {
 // Valid processes an ODR request reply message from the LES network
 // returns true and stores results in memory if the message was a valid reply
 // to the request (implementation of LesOdrRequest)
-func (r *ReceiptsRequest) Validate(db mandb.Database, msg *Msg) error {
+func (r *ReceiptsRequest) Validate(db ethdb.Database, msg *Msg) error {
 	log.Debug("Validating block receipts", "hash", r.Hash)
 
 	// Ensure we have a correct message with a single block receipt
@@ -219,7 +219,7 @@ func (r *TrieRequest) Request(reqID uint64, peer *peer) error {
 // Valid processes an ODR request reply message from the LES network
 // returns true and stores results in memory if the message was a valid reply
 // to the request (implementation of LesOdrRequest)
-func (r *TrieRequest) Validate(db mandb.Database, msg *Msg) error {
+func (r *TrieRequest) Validate(db ethdb.Database, msg *Msg) error {
 	log.Debug("Validating trie proof", "root", r.Id.Root, "key", r.Key)
 
 	switch msg.MsgType {
@@ -288,7 +288,7 @@ func (r *CodeRequest) Request(reqID uint64, peer *peer) error {
 // Valid processes an ODR request reply message from the LES network
 // returns true and stores results in memory if the message was a valid reply
 // to the request (implementation of LesOdrRequest)
-func (r *CodeRequest) Validate(db mandb.Database, msg *Msg) error {
+func (r *CodeRequest) Validate(db ethdb.Database, msg *Msg) error {
 	log.Debug("Validating code data", "hash", r.Hash)
 
 	// Ensure we have a correct message with a single code element
@@ -365,7 +365,7 @@ func (r *ChtRequest) CanSend(peer *peer) bool {
 	peer.lock.RLock()
 	defer peer.lock.RUnlock()
 
-	return peer.headInfo.Number >= light.HelperTrieConfirmations && r.ChtNum <= (peer.headInfo.Number-light.HelperTrieConfirmations)/light.CHTFrequencyClient
+	return peer.headInfo.Number >= r.Config.ChtConfirms && r.ChtNum <= (peer.headInfo.Number-r.Config.ChtConfirms)/r.Config.ChtSize
 }
 
 // Request sends an ODR request to the LES network (implementation of LesOdrRequest)
@@ -379,13 +379,27 @@ func (r *ChtRequest) Request(reqID uint64, peer *peer) error {
 		Key:     encNum[:],
 		AuxReq:  auxHeader,
 	}
-	return peer.RequestHelperTrieProofs(reqID, r.GetCost(peer), []HelperTrieReq{req})
+	switch peer.version {
+	case lpv1:
+		var reqsV1 ChtReq
+		if req.Type != htCanonical || req.AuxReq != auxHeader || len(req.Key) != 8 {
+			return fmt.Errorf("Request invalid in LES/1 mode")
+		}
+		blockNum := binary.BigEndian.Uint64(req.Key)
+		// convert HelperTrie request to old CHT request
+		reqsV1 = ChtReq{ChtNum: (req.TrieIdx + 1) * (r.Config.ChtSize / r.Config.PairChtSize), BlockNum: blockNum, FromLevel: req.FromLevel}
+		return peer.RequestHelperTrieProofs(reqID, r.GetCost(peer), []ChtReq{reqsV1})
+	case lpv2:
+		return peer.RequestHelperTrieProofs(reqID, r.GetCost(peer), []HelperTrieReq{req})
+	default:
+		panic(nil)
+	}
 }
 
 // Valid processes an ODR request reply message from the LES network
 // returns true and stores results in memory if the message was a valid reply
 // to the request (implementation of LesOdrRequest)
-func (r *ChtRequest) Validate(db mandb.Database, msg *Msg) error {
+func (r *ChtRequest) Validate(db ethdb.Database, msg *Msg) error {
 	log.Debug("Validating CHT", "cht", r.ChtNum, "block", r.BlockNum)
 
 	switch msg.MsgType {
@@ -464,7 +478,7 @@ func (r *ChtRequest) Validate(db mandb.Database, msg *Msg) error {
 }
 
 type BloomReq struct {
-	BloomTrieNum, BitIdx, SectionIdx, FromLevel uint64
+	BloomTrieNum, BitIdx, SectionIndex, FromLevel uint64
 }
 
 // ODR request type for requesting headers by Canonical Hash Trie, see LesOdrRequest interface
@@ -473,7 +487,7 @@ type BloomRequest light.BloomRequest
 // GetCost returns the cost of the given ODR request according to the serving
 // peer's cost table (implementation of LesOdrRequest)
 func (r *BloomRequest) GetCost(peer *peer) uint64 {
-	return peer.GetRequestCost(GetHelperTrieProofsMsg, len(r.SectionIdxList))
+	return peer.GetRequestCost(GetHelperTrieProofsMsg, len(r.SectionIndexList))
 }
 
 // CanSend tells if a certain peer is suitable for serving the given request
@@ -484,18 +498,18 @@ func (r *BloomRequest) CanSend(peer *peer) bool {
 	if peer.version < lpv2 {
 		return false
 	}
-	return peer.headInfo.Number >= light.HelperTrieConfirmations && r.BloomTrieNum <= (peer.headInfo.Number-light.HelperTrieConfirmations)/light.BloomTrieFrequency
+	return peer.headInfo.Number >= r.Config.BloomTrieConfirms && r.BloomTrieNum <= (peer.headInfo.Number-r.Config.BloomTrieConfirms)/r.Config.BloomTrieSize
 }
 
 // Request sends an ODR request to the LES network (implementation of LesOdrRequest)
 func (r *BloomRequest) Request(reqID uint64, peer *peer) error {
-	peer.Log().Debug("Requesting BloomBits", "bloomTrie", r.BloomTrieNum, "bitIdx", r.BitIdx, "sections", r.SectionIdxList)
-	reqs := make([]HelperTrieReq, len(r.SectionIdxList))
+	peer.Log().Debug("Requesting BloomBits", "bloomTrie", r.BloomTrieNum, "bitIdx", r.BitIdx, "sections", r.SectionIndexList)
+	reqs := make([]HelperTrieReq, len(r.SectionIndexList))
 
 	var encNumber [10]byte
 	binary.BigEndian.PutUint16(encNumber[:2], uint16(r.BitIdx))
 
-	for i, sectionIdx := range r.SectionIdxList {
+	for i, sectionIdx := range r.SectionIndexList {
 		binary.BigEndian.PutUint64(encNumber[2:], sectionIdx)
 		reqs[i] = HelperTrieReq{
 			Type:    htBloomBits,
@@ -509,8 +523,8 @@ func (r *BloomRequest) Request(reqID uint64, peer *peer) error {
 // Valid processes an ODR request reply message from the LES network
 // returns true and stores results in memory if the message was a valid reply
 // to the request (implementation of LesOdrRequest)
-func (r *BloomRequest) Validate(db mandb.Database, msg *Msg) error {
-	log.Debug("Validating BloomBits", "bloomTrie", r.BloomTrieNum, "bitIdx", r.BitIdx, "sections", r.SectionIdxList)
+func (r *BloomRequest) Validate(db ethdb.Database, msg *Msg) error {
+	log.Debug("Validating BloomBits", "bloomTrie", r.BloomTrieNum, "bitIdx", r.BitIdx, "sections", r.SectionIndexList)
 
 	// Ensure we have a correct message with a single proof element
 	if msg.MsgType != MsgHelperTrieProofs {
@@ -521,13 +535,13 @@ func (r *BloomRequest) Validate(db mandb.Database, msg *Msg) error {
 	nodeSet := proofs.NodeSet()
 	reads := &readTraceDB{db: nodeSet}
 
-	r.BloomBits = make([][]byte, len(r.SectionIdxList))
+	r.BloomBits = make([][]byte, len(r.SectionIndexList))
 
 	// Verify the proofs
 	var encNumber [10]byte
 	binary.BigEndian.PutUint16(encNumber[:2], uint16(r.BitIdx))
 
-	for i, idx := range r.SectionIdxList {
+	for i, idx := range r.SectionIndexList {
 		binary.BigEndian.PutUint64(encNumber[2:], idx)
 		value, _, err := trie.VerifyProof(r.BloomTrieRoot, encNumber[:], reads)
 		if err != nil {

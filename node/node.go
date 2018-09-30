@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2015 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package node
 
@@ -26,18 +26,13 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/matrix/go-matrix/mc"
-
-	"github.com/matrix/go-matrix/accounts"
-	"github.com/matrix/go-matrix/accounts/signhelper"
-	"github.com/matrix/go-matrix/ca"
-	"github.com/matrix/go-matrix/mandb"
-	"github.com/matrix/go-matrix/event"
-	"github.com/matrix/go-matrix/hd"
-	"github.com/matrix/go-matrix/internal/debug"
-	"github.com/matrix/go-matrix/log"
-	"github.com/matrix/go-matrix/p2p"
-	"github.com/matrix/go-matrix/rpc"
+	"github.com/ethereum/go-ethereum/accounts"
+	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/event"
+	"github.com/ethereum/go-ethereum/internal/debug"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/p2p"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/prometheus/prometheus/util/flock"
 )
 
@@ -72,10 +67,6 @@ type Node struct {
 	wsListener net.Listener // Websocket RPC listener socket to server API requests
 	wsHandler  *rpc.Server  // Websocket RPC request handler to process the API requests
 
-	MsgCenter  *mc.Center
-	hd         *hd.HD
-	signHelper *signhelper.SignHelper
-
 	stop chan struct{} // Channel to wait for termination notifications
 	lock sync.RWMutex
 
@@ -107,7 +98,7 @@ func New(conf *Config) (*Node, error) {
 		return nil, errors.New(`Config.Name cannot end in ".ipc"`)
 	}
 	// Ensure that the AccountManager method works before the node has started.
-	// We rely on this in cmd/gman.
+	// We rely on this in cmd/geth.
 	am, ephemeralKeystore, err := makeAccountManager(conf)
 	if err != nil {
 		return nil, err
@@ -117,11 +108,6 @@ func New(conf *Config) (*Node, error) {
 	}
 	// Note: any interaction with Config that would create/touch files
 	// in the data directory or instance directory is delayed until Start.
-	hd, err := hd.NewHD()
-	if err != nil {
-		return nil, err
-	}
-	signHelper := signhelper.NewSignHelper()
 	return &Node{
 		accman:            am,
 		ephemeralKeystore: ephemeralKeystore,
@@ -132,8 +118,6 @@ func New(conf *Config) (*Node, error) {
 		wsEndpoint:        conf.WSEndpoint(),
 		eventmux:          new(event.TypeMux),
 		log:               conf.Logger,
-		hd:                hd,
-		signHelper:        signHelper,
 	}, nil
 }
 
@@ -178,8 +162,7 @@ func (n *Node) Start() error {
 	if n.serverConfig.NodeDatabase == "" {
 		n.serverConfig.NodeDatabase = n.config.NodeDB()
 	}
-	p2p.ServerP2p.Config = n.serverConfig
-	running := p2p.ServerP2p
+	running := &p2p.Server{Config: n.serverConfig}
 	n.log.Info("Starting peer-to-peer node", "instance", n.serverConfig.Name)
 
 	// Otherwise copy and specialize the P2P configuration
@@ -191,9 +174,6 @@ func (n *Node) Start() error {
 			services:       make(map[reflect.Type]Service),
 			EventMux:       n.eventmux,
 			AccountManager: n.accman,
-			MsgCenter:      n.MsgCenter,
-			HD:             n.hd,
-			SignHelper:     n.signHelper,
 		}
 		for kind, s := range services { // copy needed for threaded access
 			ctx.services[kind] = s
@@ -239,12 +219,6 @@ func (n *Node) Start() error {
 		running.Stop()
 		return err
 	}
-	//var bc *core.BlockChain
-	//boot := boot.New(bc, n.Server().NodeInfo().ID)
-	//boot.Run()
-	// start ca
-	go ca.Start(running.Self().ID, n.config.DataDir)
-
 	// Finish initializing the startup
 	n.services = services
 	n.server = running
@@ -254,7 +228,6 @@ func (n *Node) Start() error {
 }
 
 func (n *Node) openDataDir() error {
-	//fmt.Println("*************DataDir",n.config.DataDir)
 	if n.config.DataDir == "" {
 		return nil // ephemeral
 	}
@@ -290,7 +263,7 @@ func (n *Node) startRPC(services map[reflect.Type]Service) error {
 		n.stopInProc()
 		return err
 	}
-	if err := n.startHTTP(n.httpEndpoint, apis, n.config.HTTPModules, n.config.HTTPCors, n.config.HTTPVirtualHosts); err != nil {
+	if err := n.startHTTP(n.httpEndpoint, apis, n.config.HTTPModules, n.config.HTTPCors, n.config.HTTPVirtualHosts, n.config.HTTPTimeouts); err != nil {
 		n.stopIPC()
 		n.stopInProc()
 		return err
@@ -358,12 +331,12 @@ func (n *Node) stopIPC() {
 }
 
 // startHTTP initializes and starts the HTTP RPC endpoint.
-func (n *Node) startHTTP(endpoint string, apis []rpc.API, modules []string, cors []string, vhosts []string) error {
+func (n *Node) startHTTP(endpoint string, apis []rpc.API, modules []string, cors []string, vhosts []string, timeouts rpc.HTTPTimeouts) error {
 	// Short circuit if the HTTP endpoint isn't being exposed
 	if endpoint == "" {
 		return nil
 	}
-	listener, handler, err := rpc.StartHTTPEndpoint(endpoint, apis, modules, cors, vhosts)
+	listener, handler, err := rpc.StartHTTPEndpoint(endpoint, apis, modules, cors, vhosts, timeouts)
 	if err != nil {
 		return err
 	}
@@ -451,8 +424,6 @@ func (n *Node) Stop() error {
 	n.services = nil
 	n.server = nil
 
-	// stop ca
-	ca.Stop()
 	// Release instance directory lock.
 	if n.instanceDirLock != nil {
 		if err := n.instanceDirLock.Release(); err != nil {
@@ -570,9 +541,6 @@ func (n *Node) InstanceDir() string {
 func (n *Node) AccountManager() *accounts.Manager {
 	return n.accman
 }
-func (n *Node) SignalHelper() *signhelper.SignHelper {
-	return n.signHelper
-}
 
 // IPCEndpoint retrieves the current IPC endpoint used by the protocol stack.
 func (n *Node) IPCEndpoint() string {
@@ -598,16 +566,16 @@ func (n *Node) EventMux() *event.TypeMux {
 // OpenDatabase opens an existing database with the given name (or creates one if no
 // previous can be found) from within the node's instance directory. If the node is
 // ephemeral, a memory database is returned.
-func (n *Node) OpenDatabase(name string, cache, handles int) (mandb.Database, error) {
+func (n *Node) OpenDatabase(name string, cache, handles int) (ethdb.Database, error) {
 	if n.config.DataDir == "" {
-		return mandb.NewMemDatabase(), nil
+		return ethdb.NewMemDatabase(), nil
 	}
-	return mandb.NewLDBDatabase(n.config.resolvePath(name), cache, handles)
+	return ethdb.NewLDBDatabase(n.config.ResolvePath(name), cache, handles)
 }
 
 // ResolvePath returns the absolute path of a resource in the instance directory.
 func (n *Node) ResolvePath(x string) string {
-	return n.config.resolvePath(x)
+	return n.config.ResolvePath(x)
 }
 
 // apis returns the collection of RPC descriptors this node offers.

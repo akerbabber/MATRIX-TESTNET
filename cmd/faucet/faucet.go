@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of go-ethereum.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// go-ethereum is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// go-ethereum is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU General Public License
+// along with go-ethereum. If not, see <http://www.gnu.org/licenses/>.
 
 // faucet is a Ether faucet backed by a light client.
 package main
@@ -41,33 +41,33 @@ import (
 	"sync"
 	"time"
 
-	"github.com/matrix/go-matrix/accounts"
-	"github.com/matrix/go-matrix/accounts/keystore"
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/core"
-	"github.com/matrix/go-matrix/core/types"
-	"github.com/matrix/go-matrix/man"
-	"github.com/matrix/go-matrix/man/downloader"
-	"github.com/matrix/go-matrix/manclient"
-	"github.com/matrix/go-matrix/manstats"
-	"github.com/matrix/go-matrix/les"
-	"github.com/matrix/go-matrix/log"
-	"github.com/matrix/go-matrix/node"
-	"github.com/matrix/go-matrix/p2p"
-	"github.com/matrix/go-matrix/p2p/discover"
-	"github.com/matrix/go-matrix/p2p/discv5"
-	"github.com/matrix/go-matrix/p2p/nat"
-	"github.com/matrix/go-matrix/params"
+	"github.com/ethereum/go-ethereum/accounts"
+	"github.com/ethereum/go-ethereum/accounts/keystore"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/eth"
+	"github.com/ethereum/go-ethereum/eth/downloader"
+	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/ethstats"
+	"github.com/ethereum/go-ethereum/les"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/node"
+	"github.com/ethereum/go-ethereum/p2p"
+	"github.com/ethereum/go-ethereum/p2p/discv5"
+	"github.com/ethereum/go-ethereum/p2p/enode"
+	"github.com/ethereum/go-ethereum/p2p/nat"
+	"github.com/ethereum/go-ethereum/params"
 	"golang.org/x/net/websocket"
 )
 
 var (
 	genesisFlag = flag.String("genesis", "", "Genesis json file to seed the chain with")
 	apiPortFlag = flag.Int("apiport", 8080, "Listener port for the HTTP API connection")
-	manPortFlag = flag.Int("manport", 30303, "Listener port for the devp2p connection")
+	ethPortFlag = flag.Int("ethport", 30303, "Listener port for the devp2p connection")
 	bootFlag    = flag.String("bootnodes", "", "Comma separated bootnode enode URLs to seed with")
-	netFlag     = flag.Uint64("network", 0, "Network ID to use for the Matrix protocol")
-	statsFlag   = flag.String("manstats", "", "Ethstats network monitoring auth string")
+	netFlag     = flag.Uint64("network", 0, "Network ID to use for the Ethereum protocol")
+	statsFlag   = flag.String("ethstats", "", "Ethstats network monitoring auth string")
 
 	netnameFlag = flag.String("faucet.name", "", "Network name to assign to the faucet")
 	payoutFlag  = flag.Int("faucet.amount", 1, "Number of Ethers to pay out per user request")
@@ -77,18 +77,15 @@ var (
 	accJSONFlag = flag.String("account.json", "", "Key json file to fund user requests with")
 	accPassFlag = flag.String("account.pass", "", "Decryption password to access faucet funds")
 
-	githubUser  = flag.String("github.user", "", "GitHub user to authenticate with for Gist access")
-	githubToken = flag.String("github.token", "", "GitHub personal token to access Gists with")
-
 	captchaToken  = flag.String("captcha.token", "", "Recaptcha site key to authenticate client side")
 	captchaSecret = flag.String("captcha.secret", "", "Recaptcha secret key to authenticate server side")
 
 	noauthFlag = flag.Bool("noauth", false, "Enables funding requests without authentication")
-	logFlag    = flag.Int("loglevel", 3, "Log level to use for Matrix and the faucet")
+	logFlag    = flag.Int("loglevel", 3, "Log level to use for Ethereum and the faucet")
 )
 
 var (
-	MAN = new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
+	ether = new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
 )
 
 func main() {
@@ -160,7 +157,8 @@ func main() {
 	if blob, err = ioutil.ReadFile(*accPassFlag); err != nil {
 		log.Crit("Failed to read account password contents", "file", *accPassFlag, "err", err)
 	}
-	pass := string(blob)
+	// Delete trailing newline in password
+	pass := strings.TrimSuffix(string(blob), "\n")
 
 	ks := keystore.NewKeyStore(filepath.Join(os.Getenv("HOME"), ".faucet", "keys"), keystore.StandardScryptN, keystore.StandardScryptP)
 	if blob, err = ioutil.ReadFile(*accJSONFlag); err != nil {
@@ -173,7 +171,7 @@ func main() {
 	ks.Unlock(acc, pass)
 
 	// Assemble and start the faucet light service
-	faucet, err := newFaucet(genesis, *manPortFlag, enodes, *netFlag, *statsFlag, ks, website.Bytes())
+	faucet, err := newFaucet(genesis, *ethPortFlag, enodes, *netFlag, *statsFlag, ks, website.Bytes())
 	if err != nil {
 		log.Crit("Failed to start faucet", "err", err)
 	}
@@ -187,20 +185,22 @@ func main() {
 // request represents an accepted funding request.
 type request struct {
 	Avatar  string             `json:"avatar"`  // Avatar URL to make the UI nicer
-	Account common.Address     `json:"account"` // Matrix address being funded
+	Account common.Address     `json:"account"` // Ethereum address being funded
 	Time    time.Time          `json:"time"`    // Timestamp when the request was accepted
 	Tx      *types.Transaction `json:"tx"`      // Transaction funding the account
 }
 
-// faucet represents a crypto faucet backed by an Matrix light client.
+// faucet represents a crypto faucet backed by an Ethereum light client.
 type faucet struct {
 	config *params.ChainConfig // Chain configurations for signing
-	stack  *node.Node          // Matrix protocol stack
-	client *manclient.Client   // Client connection to the Matrix chain
+	stack  *node.Node          // Ethereum protocol stack
+	client *ethclient.Client   // Client connection to the Ethereum chain
 	index  []byte              // Index page to serve up on the web
 
 	keystore *keystore.KeyStore // Keystore containing the single signer
 	account  accounts.Account   // Account funding user faucet requests
+	head     *types.Header      // Current head header of the faucet
+	balance  *big.Int           // Current balance of the faucet
 	nonce    uint64             // Current pending nonce of the faucet
 	price    *big.Int           // Current gas price to issue funds with
 
@@ -215,8 +215,8 @@ type faucet struct {
 func newFaucet(genesis *core.Genesis, port int, enodes []*discv5.Node, network uint64, stats string, ks *keystore.KeyStore, index []byte) (*faucet, error) {
 	// Assemble the raw devp2p protocol stack
 	stack, err := node.New(&node.Config{
-		Name:    "gman",
-		Version: params.Version,
+		Name:    "geth",
+		Version: params.VersionWithMeta,
 		DataDir: filepath.Join(os.Getenv("HOME"), ".faucet"),
 		P2P: p2p.Config{
 			NAT:              nat.Any(),
@@ -230,9 +230,9 @@ func newFaucet(genesis *core.Genesis, port int, enodes []*discv5.Node, network u
 	if err != nil {
 		return nil, err
 	}
-	// Assemble the Matrix light client protocol
+	// Assemble the Ethereum light client protocol
 	if err := stack.Register(func(ctx *node.ServiceContext) (node.Service, error) {
-		cfg := man.DefaultConfig
+		cfg := eth.DefaultConfig
 		cfg.SyncMode = downloader.LightSync
 		cfg.NetworkId = network
 		cfg.Genesis = genesis
@@ -240,12 +240,12 @@ func newFaucet(genesis *core.Genesis, port int, enodes []*discv5.Node, network u
 	}); err != nil {
 		return nil, err
 	}
-	// Assemble the manstats monitoring and reporting service'
+	// Assemble the ethstats monitoring and reporting service'
 	if stats != "" {
 		if err := stack.Register(func(ctx *node.ServiceContext) (node.Service, error) {
-			var serv *les.LightMatrix
+			var serv *les.LightEthereum
 			ctx.Service(&serv)
-			return manstats.New(stats, nil, serv)
+			return ethstats.New(stats, nil, serv)
 		}); err != nil {
 			return nil, err
 		}
@@ -255,8 +255,10 @@ func newFaucet(genesis *core.Genesis, port int, enodes []*discv5.Node, network u
 		return nil, err
 	}
 	for _, boot := range enodes {
-		old, _ := discover.ParseNode(boot.String())
-		stack.Server().AddPeer(old)
+		old, err := enode.ParseV4(boot.String())
+		if err != nil {
+			stack.Server().AddPeer(old)
+		}
 	}
 	// Attach to the client and retrieve and interesting metadatas
 	api, err := stack.Attach()
@@ -264,7 +266,7 @@ func newFaucet(genesis *core.Genesis, port int, enodes []*discv5.Node, network u
 		stack.Stop()
 		return nil, err
 	}
-	client := manclient.NewClient(api)
+	client := ethclient.NewClient(api)
 
 	return &faucet{
 		config:   genesis.Config,
@@ -278,7 +280,7 @@ func newFaucet(genesis *core.Genesis, port int, enodes []*discv5.Node, network u
 	}, nil
 }
 
-// close terminates the Matrix connection and tears down the faucet.
+// close terminates the Ethereum connection and tears down the faucet.
 func (f *faucet) close() error {
 	return f.stack.Stop()
 }
@@ -326,33 +328,30 @@ func (f *faucet) apiHandler(conn *websocket.Conn) {
 		nonce   uint64
 		err     error
 	)
-	for {
-		// Attempt to retrieve the stats, may error on no faucet connectivity
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		head, err = f.client.HeaderByNumber(ctx, nil)
-		if err == nil {
-			balance, err = f.client.BalanceAt(ctx, f.account.Address, head.Number)
-			if err == nil {
-				nonce, err = f.client.NonceAt(ctx, f.account.Address, nil)
-			}
+	for head == nil || balance == nil {
+		// Retrieve the current stats cached by the faucet
+		f.lock.RLock()
+		if f.head != nil {
+			head = types.CopyHeader(f.head)
 		}
-		cancel()
+		if f.balance != nil {
+			balance = new(big.Int).Set(f.balance)
+		}
+		nonce = f.nonce
+		f.lock.RUnlock()
 
-		// If stats retrieval failed, wait a bit and retry
-		if err != nil {
-			if err = sendError(conn, errors.New("Faucet offline: "+err.Error())); err != nil {
+		if head == nil || balance == nil {
+			// Report the faucet offline until initial stats are ready
+			if err = sendError(conn, errors.New("Faucet offline")); err != nil {
 				log.Warn("Failed to send faucet error to client", "err", err)
 				return
 			}
 			time.Sleep(3 * time.Second)
-			continue
 		}
-		// Initial stats reported successfully, proceed with user interaction
-		break
 	}
 	// Send over the initial stats and the latest header
 	if err = send(conn, map[string]interface{}{
-		"funds":    balance.Div(balance, MAN),
+		"funds":    new(big.Int).Div(balance, ether),
 		"funded":   nonce,
 		"peers":    f.stack.Server().PeerCount(),
 		"requests": f.reqs,
@@ -428,7 +427,7 @@ func (f *faucet) apiHandler(conn *websocket.Conn) {
 				continue
 			}
 		}
-		// Retrieve the Matrix address to fund, the requesting user and a profile picture
+		// Retrieve the Ethereum address to fund, the requesting user and a profile picture
 		var (
 			username string
 			avatar   string
@@ -450,7 +449,7 @@ func (f *faucet) apiHandler(conn *websocket.Conn) {
 		case *noauthFlag:
 			username, avatar, address, err = authNoAuth(msg.URL)
 		default:
-			err = errors.New("Something funky happened, please open an issue at https://github.com/matrix/go-matrix/issues")
+			err = errors.New("Something funky happened, please open an issue at https://github.com/ethereum/go-ethereum/issues")
 		}
 		if err != nil {
 			if err = sendError(conn, err); err != nil {
@@ -469,12 +468,12 @@ func (f *faucet) apiHandler(conn *websocket.Conn) {
 		)
 		if timeout = f.timeouts[username]; time.Now().After(timeout) {
 			// User wasn't funded recently, create the funding transaction
-			amount := new(big.Int).Mul(big.NewInt(int64(*payoutFlag)), MAN)
+			amount := new(big.Int).Mul(big.NewInt(int64(*payoutFlag)), ether)
 			amount = new(big.Int).Mul(amount, new(big.Int).Exp(big.NewInt(5), big.NewInt(int64(msg.Tier)), nil))
 			amount = new(big.Int).Div(amount, new(big.Int).Exp(big.NewInt(2), big.NewInt(int64(msg.Tier)), nil))
 
 			tx := types.NewTransaction(f.nonce+uint64(len(f.reqs)), address, amount, 21000, f.price, nil)
-			signed, err := f.keystore.SignTx(f.account, tx, f.config.ChainId)
+			signed, err := f.keystore.SignTx(f.account, tx, f.config.ChainID)
 			if err != nil {
 				f.lock.Unlock()
 				if err = sendError(conn, err); err != nil {
@@ -522,6 +521,47 @@ func (f *faucet) apiHandler(conn *websocket.Conn) {
 	}
 }
 
+// refresh attempts to retrieve the latest header from the chain and extract the
+// associated faucet balance and nonce for connectivity caching.
+func (f *faucet) refresh(head *types.Header) error {
+	// Ensure a state update does not run for too long
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// If no header was specified, use the current chain head
+	var err error
+	if head == nil {
+		if head, err = f.client.HeaderByNumber(ctx, nil); err != nil {
+			return err
+		}
+	}
+	// Retrieve the balance, nonce and gas price from the current head
+	var (
+		balance *big.Int
+		nonce   uint64
+		price   *big.Int
+	)
+	if balance, err = f.client.BalanceAt(ctx, f.account.Address, head.Number); err != nil {
+		return err
+	}
+	if nonce, err = f.client.NonceAt(ctx, f.account.Address, head.Number); err != nil {
+		return err
+	}
+	if price, err = f.client.SuggestGasPrice(ctx); err != nil {
+		return err
+	}
+	// Everything succeeded, update the cached stats and eject old requests
+	f.lock.Lock()
+	f.head, f.balance = head, balance
+	f.price, f.nonce = price, nonce
+	for len(f.reqs) > 0 && f.reqs[0].Tx.Nonce() < f.nonce {
+		f.reqs = f.reqs[1:]
+	}
+	f.lock.Unlock()
+
+	return nil
+}
+
 // loop keeps waiting for interesting events and pushes them out to connected
 // websockets.
 func (f *faucet) loop() {
@@ -539,45 +579,27 @@ func (f *faucet) loop() {
 	go func() {
 		for head := range update {
 			// New chain head arrived, query the current stats and stream to clients
-			var (
-				balance *big.Int
-				nonce   uint64
-				price   *big.Int
-				err     error
-			)
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			balance, err = f.client.BalanceAt(ctx, f.account.Address, head.Number)
-			if err == nil {
-				nonce, err = f.client.NonceAt(ctx, f.account.Address, nil)
-				if err == nil {
-					price, err = f.client.SuggestGasPrice(ctx)
-				}
+			timestamp := time.Unix(head.Time.Int64(), 0)
+			if time.Since(timestamp) > time.Hour {
+				log.Warn("Skipping faucet refresh, head too old", "number", head.Number, "hash", head.Hash(), "age", common.PrettyAge(timestamp))
+				continue
 			}
-			cancel()
-
-			// If querying the data failed, try for the next block
-			if err != nil {
+			if err := f.refresh(head); err != nil {
 				log.Warn("Failed to update faucet state", "block", head.Number, "hash", head.Hash(), "err", err)
 				continue
-			} else {
-				log.Info("Updated faucet state", "block", head.Number, "hash", head.Hash(), "balance", balance, "nonce", nonce, "price", price)
 			}
 			// Faucet state retrieved, update locally and send to clients
-			balance = new(big.Int).Div(balance, MAN)
-
-			f.lock.Lock()
-			f.price, f.nonce = price, nonce
-			for len(f.reqs) > 0 && f.reqs[0].Tx.Nonce() < f.nonce {
-				f.reqs = f.reqs[1:]
-			}
-			f.lock.Unlock()
-
 			f.lock.RLock()
+			log.Info("Updated faucet state", "number", head.Number, "hash", head.Hash(), "age", common.PrettyAge(timestamp), "balance", f.balance, "nonce", f.nonce, "price", f.price)
+
+			balance := new(big.Int).Div(f.balance, ether)
+			peers := f.stack.Server().PeerCount()
+
 			for _, conn := range f.conns {
 				if err := send(conn, map[string]interface{}{
 					"funds":    balance,
 					"funded":   f.nonce,
-					"peers":    f.stack.Server().PeerCount(),
+					"peers":    peers,
 					"requests": f.reqs,
 				}, time.Second); err != nil {
 					log.Warn("Failed to send stats to client", "err", err)
@@ -638,61 +660,8 @@ func sendSuccess(conn *websocket.Conn, msg string) error {
 	return send(conn, map[string]string{"success": msg}, time.Second)
 }
 
-// authGitHub tries to authenticate a faucet request using GitHub gists, returning
-// the username, avatar URL and Matrix address to fund on success.
-func authGitHub(url string) (string, string, common.Address, error) {
-	// Retrieve the gist from the GitHub Gist APIs
-	parts := strings.Split(url, "/")
-	req, _ := http.NewRequest("GET", "https://api.github.com/gists/"+parts[len(parts)-1], nil)
-	if *githubUser != "" {
-		req.SetBasicAuth(*githubUser, *githubToken)
-	}
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", "", common.Address{}, err
-	}
-	var gist struct {
-		Owner struct {
-			Login string `json:"login"`
-		} `json:"owner"`
-		Files map[string]struct {
-			Content string `json:"content"`
-		} `json:"files"`
-	}
-	err = json.NewDecoder(res.Body).Decode(&gist)
-	res.Body.Close()
-	if err != nil {
-		return "", "", common.Address{}, err
-	}
-	if gist.Owner.Login == "" {
-		return "", "", common.Address{}, errors.New("Anonymous Gists not allowed")
-	}
-	// Iterate over all the files and look for Matrix addresses
-	var address common.Address
-	for _, file := range gist.Files {
-		content := strings.TrimSpace(file.Content)
-		if len(content) == 2+common.AddressLength*2 {
-			address = common.HexToAddress(content)
-		}
-	}
-	if address == (common.Address{}) {
-		return "", "", common.Address{}, errors.New("No Matrix address found to fund")
-	}
-	// Validate the user's existence since the API is unhelpful here
-	if res, err = http.Head("https://github.com/" + gist.Owner.Login); err != nil {
-		return "", "", common.Address{}, err
-	}
-	res.Body.Close()
-
-	if res.StatusCode != 200 {
-		return "", "", common.Address{}, errors.New("Invalid user... boom!")
-	}
-	// Everything passed validation, return the gathered infos
-	return gist.Owner.Login + "@github", fmt.Sprintf("https://github.com/%s.png?size=64", gist.Owner.Login), address, nil
-}
-
 // authTwitter tries to authenticate a faucet request using Twitter posts, returning
-// the username, avatar URL and Matrix address to fund on success.
+// the username, avatar URL and Ethereum address to fund on success.
 func authTwitter(url string) (string, string, common.Address, error) {
 	// Ensure the user specified a meaningful URL, no fancy nonsense
 	parts := strings.Split(url, "/")
@@ -701,7 +670,7 @@ func authTwitter(url string) (string, string, common.Address, error) {
 	}
 	// Twitter's API isn't really friendly with direct links. Still, we don't
 	// want to do ask read permissions from users, so just load the public posts and
-	// scrape it for the Matrix address and profile URL.
+	// scrape it for the Ethereum address and profile URL.
 	res, err := http.Get(url)
 	if err != nil {
 		return "", "", common.Address{}, err
@@ -721,7 +690,7 @@ func authTwitter(url string) (string, string, common.Address, error) {
 	}
 	address := common.HexToAddress(string(regexp.MustCompile("0x[0-9a-fA-F]{40}").Find(body)))
 	if address == (common.Address{}) {
-		return "", "", common.Address{}, errors.New("No Matrix address found to fund")
+		return "", "", common.Address{}, errors.New("No Ethereum address found to fund")
 	}
 	var avatar string
 	if parts = regexp.MustCompile("src=\"([^\"]+twimg.com/profile_images[^\"]+)\"").FindStringSubmatch(string(body)); len(parts) == 2 {
@@ -731,7 +700,7 @@ func authTwitter(url string) (string, string, common.Address, error) {
 }
 
 // authGooglePlus tries to authenticate a faucet request using GooglePlus posts,
-// returning the username, avatar URL and Matrix address to fund on success.
+// returning the username, avatar URL and Ethereum address to fund on success.
 func authGooglePlus(url string) (string, string, common.Address, error) {
 	// Ensure the user specified a meaningful URL, no fancy nonsense
 	parts := strings.Split(url, "/")
@@ -742,7 +711,7 @@ func authGooglePlus(url string) (string, string, common.Address, error) {
 
 	// Google's API isn't really friendly with direct links. Still, we don't
 	// want to do ask read permissions from users, so just load the public posts and
-	// scrape it for the Matrix address and profile URL.
+	// scrape it for the Ethereum address and profile URL.
 	res, err := http.Get(url)
 	if err != nil {
 		return "", "", common.Address{}, err
@@ -755,7 +724,7 @@ func authGooglePlus(url string) (string, string, common.Address, error) {
 	}
 	address := common.HexToAddress(string(regexp.MustCompile("0x[0-9a-fA-F]{40}").Find(body)))
 	if address == (common.Address{}) {
-		return "", "", common.Address{}, errors.New("No Matrix address found to fund")
+		return "", "", common.Address{}, errors.New("No Ethereum address found to fund")
 	}
 	var avatar string
 	if parts = regexp.MustCompile("src=\"([^\"]+googleusercontent.com[^\"]+photo.jpg)\"").FindStringSubmatch(string(body)); len(parts) == 2 {
@@ -765,7 +734,7 @@ func authGooglePlus(url string) (string, string, common.Address, error) {
 }
 
 // authFacebook tries to authenticate a faucet request using Facebook posts,
-// returning the username, avatar URL and Matrix address to fund on success.
+// returning the username, avatar URL and Ethereum address to fund on success.
 func authFacebook(url string) (string, string, common.Address, error) {
 	// Ensure the user specified a meaningful URL, no fancy nonsense
 	parts := strings.Split(url, "/")
@@ -776,7 +745,7 @@ func authFacebook(url string) (string, string, common.Address, error) {
 
 	// Facebook's Graph API isn't really friendly with direct links. Still, we don't
 	// want to do ask read permissions from users, so just load the public posts and
-	// scrape it for the Matrix address and profile URL.
+	// scrape it for the Ethereum address and profile URL.
 	res, err := http.Get(url)
 	if err != nil {
 		return "", "", common.Address{}, err
@@ -789,7 +758,7 @@ func authFacebook(url string) (string, string, common.Address, error) {
 	}
 	address := common.HexToAddress(string(regexp.MustCompile("0x[0-9a-fA-F]{40}").Find(body)))
 	if address == (common.Address{}) {
-		return "", "", common.Address{}, errors.New("No Matrix address found to fund")
+		return "", "", common.Address{}, errors.New("No Ethereum address found to fund")
 	}
 	var avatar string
 	if parts = regexp.MustCompile("src=\"([^\"]+fbcdn.net[^\"]+)\"").FindStringSubmatch(string(body)); len(parts) == 2 {
@@ -798,13 +767,13 @@ func authFacebook(url string) (string, string, common.Address, error) {
 	return username + "@facebook", avatar, address, nil
 }
 
-// authNoAuth tries to interpret a faucet request as a plain Matrix address,
+// authNoAuth tries to interpret a faucet request as a plain Ethereum address,
 // without actually performing any remote authentication. This mode is prone to
 // Byzantine attack, so only ever use for truly private networks.
 func authNoAuth(url string) (string, string, common.Address, error) {
 	address := common.HexToAddress(regexp.MustCompile("0x[0-9a-fA-F]{40}").FindString(url))
 	if address == (common.Address{}) {
-		return "", "", common.Address{}, errors.New("No Matrix address found to fund")
+		return "", "", common.Address{}, errors.New("No Ethereum address found to fund")
 	}
 	return address.Hex() + "@noauth", "", address, nil
 }

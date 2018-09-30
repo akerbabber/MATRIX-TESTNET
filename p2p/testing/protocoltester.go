@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 /*
 the p2p/testing package provides a unit test scheme to check simple
@@ -32,14 +32,14 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/matrix/go-matrix/log"
-	"github.com/matrix/go-matrix/node"
-	"github.com/matrix/go-matrix/p2p"
-	"github.com/matrix/go-matrix/p2p/discover"
-	"github.com/matrix/go-matrix/p2p/simulations"
-	"github.com/matrix/go-matrix/p2p/simulations/adapters"
-	"github.com/matrix/go-matrix/rlp"
-	"github.com/matrix/go-matrix/rpc"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/node"
+	"github.com/ethereum/go-ethereum/p2p"
+	"github.com/ethereum/go-ethereum/p2p/enode"
+	"github.com/ethereum/go-ethereum/p2p/simulations"
+	"github.com/ethereum/go-ethereum/p2p/simulations/adapters"
+	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/ethereum/go-ethereum/rpc"
 )
 
 // ProtocolTester is the tester environment used for unit testing protocol
@@ -52,7 +52,7 @@ type ProtocolTester struct {
 // NewProtocolTester constructs a new ProtocolTester
 // it takes as argument the pivot node id, the number of dummy peers and the
 // protocol run function called on a peer connection by the p2p server
-func NewProtocolTester(t *testing.T, id discover.NodeID, n int, run func(*p2p.Peer, p2p.MsgReadWriter) error) *ProtocolTester {
+func NewProtocolTester(t *testing.T, id enode.ID, n int, run func(*p2p.Peer, p2p.MsgReadWriter) error) *ProtocolTester {
 	services := adapters.Services{
 		"test": func(ctx *adapters.ServiceContext) (node.Service, error) {
 			return &testNode{run}, nil
@@ -76,17 +76,17 @@ func NewProtocolTester(t *testing.T, id discover.NodeID, n int, run func(*p2p.Pe
 
 	node := net.GetNode(id).Node.(*adapters.SimNode)
 	peers := make([]*adapters.NodeConfig, n)
-	peerIDs := make([]discover.NodeID, n)
+	nodes := make([]*enode.Node, n)
 	for i := 0; i < n; i++ {
 		peers[i] = adapters.RandomNodeConfig()
 		peers[i].Services = []string{"mock"}
-		peerIDs[i] = peers[i].ID
+		nodes[i] = peers[i].Node()
 	}
 	events := make(chan *p2p.PeerEvent, 1000)
 	node.SubscribeEvents(events)
 	ps := &ProtocolSession{
 		Server:  node.Server(),
-		IDs:     peerIDs,
+		Nodes:   nodes,
 		adapter: adapter,
 		events:  events,
 	}
@@ -108,7 +108,7 @@ func (t *ProtocolTester) Stop() error {
 
 // Connect brings up the remote peer node and connects it using the
 // p2p/simulations network connection with the in memory network adapter
-func (t *ProtocolTester) Connect(selfID discover.NodeID, peers ...*adapters.NodeConfig) {
+func (t *ProtocolTester) Connect(selfID enode.ID, peers ...*adapters.NodeConfig) {
 	for _, peer := range peers {
 		log.Trace(fmt.Sprintf("start node %v", peer.ID))
 		if _, err := t.network.NewNodeWithConfig(peer); err != nil {
@@ -180,7 +180,8 @@ func (m *mockNode) Run(peer *p2p.Peer, rw p2p.MsgReadWriter) error {
 	for {
 		select {
 		case trig := <-m.trigger:
-			m.err <- p2p.Send(rw, trig.Code, trig.Msg)
+			wmsg := Wrap(trig.Msg)
+			m.err <- p2p.Send(rw, trig.Code, wmsg)
 		case exps := <-m.expect:
 			m.err <- expectMsgs(rw, exps)
 		case <-m.stop:
@@ -220,7 +221,7 @@ func expectMsgs(rw p2p.MsgReadWriter, exps []Expect) error {
 		}
 		var found bool
 		for i, exp := range exps {
-			if exp.Code == msg.Code && bytes.Equal(actualContent, mustEncodeMsg(exp.Msg)) {
+			if exp.Code == msg.Code && bytes.Equal(actualContent, mustEncodeMsg(Wrap(exp.Msg))) {
 				if matched[i] {
 					return fmt.Errorf("message #%d received two times", i)
 				}
@@ -235,7 +236,7 @@ func expectMsgs(rw p2p.MsgReadWriter, exps []Expect) error {
 				if matched[i] {
 					continue
 				}
-				expected = append(expected, fmt.Sprintf("code %d payload %x", exp.Code, mustEncodeMsg(exp.Msg)))
+				expected = append(expected, fmt.Sprintf("code %d payload %x", exp.Code, mustEncodeMsg(Wrap(exp.Msg))))
 			}
 			return fmt.Errorf("unexpected message code %d payload %x, expected %s", msg.Code, actualContent, strings.Join(expected, " or "))
 		}
@@ -266,4 +267,18 @@ func mustEncodeMsg(msg interface{}) []byte {
 		panic("content encode error: " + err.Error())
 	}
 	return contentEnc
+}
+
+type WrappedMsg struct {
+	Context []byte
+	Size    uint32
+	Payload []byte
+}
+
+func Wrap(msg interface{}) interface{} {
+	data, _ := rlp.EncodeToBytes(msg)
+	return &WrappedMsg{
+		Size:    uint32(len(data)),
+		Payload: data,
+	}
 }

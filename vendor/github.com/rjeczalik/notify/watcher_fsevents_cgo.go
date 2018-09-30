@@ -1,18 +1,3 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
-//
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
-//
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 // Copyright (c) 2014-2015 The Notify Authors. All rights reserved.
 // Use of this source code is governed by the MIT license that can be
 // found in the LICENSE file.
@@ -63,7 +48,7 @@ var wg sync.WaitGroup      // used to wait until the runloop starts
 // started and is ready via the wg. It also serves purpose of a dummy source,
 // thanks to it the runloop does not return as it also has at least one source
 // registered.
-var source = C.CFRunLoopSourceCreate(nil, 0, &C.CFRunLoopSourceContext{
+var source = C.CFRunLoopSourceCreate(C.kCFAllocatorDefault, 0, &C.CFRunLoopSourceContext{
 	perform: (C.CFRunLoopPerformCallBack)(C.gosource),
 })
 
@@ -105,6 +90,10 @@ func gostream(_, info uintptr, n C.size_t, paths, flags, ids uintptr) {
 	if n == 0 {
 		return
 	}
+	fn := streamFuncs.get(info)
+	if fn == nil {
+		return
+	}
 	ev := make([]FSEvent, 0, int(n))
 	for i := uintptr(0); i < uintptr(n); i++ {
 		switch flags := *(*uint32)(unsafe.Pointer((flags + i*offflag))); {
@@ -119,7 +108,7 @@ func gostream(_, info uintptr, n C.size_t, paths, flags, ids uintptr) {
 		}
 
 	}
-	streamFuncs.get(info)(ev)
+	fn(ev)
 }
 
 // StreamFunc is a callback called when stream receives file events.
@@ -177,8 +166,8 @@ func (s *stream) Start() error {
 		return nil
 	}
 	wg.Wait()
-	p := C.CFStringCreateWithCStringNoCopy(nil, C.CString(s.path), C.kCFStringEncodingUTF8, nil)
-	path := C.CFArrayCreate(nil, (*unsafe.Pointer)(unsafe.Pointer(&p)), 1, nil)
+	p := C.CFStringCreateWithCStringNoCopy(C.kCFAllocatorDefault, C.CString(s.path), C.kCFStringEncodingUTF8, C.kCFAllocatorDefault)
+	path := C.CFArrayCreate(C.kCFAllocatorDefault, (*unsafe.Pointer)(unsafe.Pointer(&p)), 1, nil)
 	ctx := C.FSEventStreamContext{}
 	ref := C.EventStreamCreate(&ctx, C.uintptr_t(s.info), path, C.FSEventStreamEventId(atomic.LoadUint64(&since)), latency, flags)
 	if ref == nilstream {

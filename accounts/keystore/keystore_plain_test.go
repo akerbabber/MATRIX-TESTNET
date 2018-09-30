@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2014 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package keystore
 
@@ -27,17 +27,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/crypto"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 )
 
 func tmpKeyStoreIface(t *testing.T, encrypted bool) (dir string, ks keyStore) {
-	d, err := ioutil.TempDir("", "gman-keystore-test")
+	d, err := ioutil.TempDir("", "geth-keystore-test")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if encrypted {
-		ks = &keyStorePassphrase{d, veryLightScryptN, veryLightScryptP}
+		ks = &keyStorePassphrase{d, veryLightScryptN, veryLightScryptP, true}
 	} else {
 		ks = &keyStorePlain{d}
 	}
@@ -107,7 +107,7 @@ func TestImportPreSaleKey(t *testing.T) {
 	// file content of a presale key file generated with:
 	// python pyethsaletool.py genwallet
 	// with password "foo"
-	fileContent := "{\"encseed\": \"26d87f5f2bf9835f9a47eefae571bc09f9107bb13d54ff12a4ec095d01f83897494cf34f7bed2ed34126ecba9db7b62de56c9d7cd136520a0427bfb11b8954ba7ac39b90d4650d3448e31185affcd74226a68f1e94b1108e6e0a4a91cdd83eba\", \"manaddr\": \"d4584b5f6229b7be90727b0fc8c6b91bb427821f\", \"email\": \"gustav.simonsson@gmail.com\", \"btcaddr\": \"1EVknXyFC68kKNLkh6YnKzW41svSRoaAcx\"}"
+	fileContent := "{\"encseed\": \"26d87f5f2bf9835f9a47eefae571bc09f9107bb13d54ff12a4ec095d01f83897494cf34f7bed2ed34126ecba9db7b62de56c9d7cd136520a0427bfb11b8954ba7ac39b90d4650d3448e31185affcd74226a68f1e94b1108e6e0a4a91cdd83eba\", \"ethaddr\": \"d4584b5f6229b7be90727b0fc8c6b91bb427821f\", \"email\": \"gustav.simonsson@gmail.com\", \"btcaddr\": \"1EVknXyFC68kKNLkh6YnKzW41svSRoaAcx\"}"
 	pass := "foo"
 	account, _, err := importPreSaleKey(ks, []byte(fileContent), pass)
 	if err != nil {
@@ -121,7 +121,7 @@ func TestImportPreSaleKey(t *testing.T) {
 	}
 }
 
-// Test and utils for the key store tests in the Matrix JSON tests;
+// Test and utils for the key store tests in the Ethereum JSON tests;
 // testdataKeyStoreTests/basic_tests.json
 type KeyStoreTestV3 struct {
 	Json     encryptedKeyJSONV3
@@ -191,7 +191,7 @@ func TestV1_1(t *testing.T) {
 
 func TestV1_2(t *testing.T) {
 	t.Parallel()
-	ks := &keyStorePassphrase{"testdata/v1", LightScryptN, LightScryptP}
+	ks := &keyStorePassphrase{"testdata/v1", LightScryptN, LightScryptP, true}
 	addr := common.HexToAddress("cb61d5a9c4896fb9658090b597ef0e7be6f7b67e")
 	file := "testdata/v1/cb61d5a9c4896fb9658090b597ef0e7be6f7b67e/cb61d5a9c4896fb9658090b597ef0e7be6f7b67e"
 	k, err := ks.GetKey(addr, file, "g")

@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2014 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package vm
 
@@ -21,11 +21,11 @@ import (
 	"errors"
 	"math/big"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/common/math"
-	"github.com/matrix/go-matrix/crypto"
-	"github.com/matrix/go-matrix/crypto/bn256"
-	"github.com/matrix/go-matrix/params"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/math"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/crypto/bn256"
+	"github.com/ethereum/go-ethereum/params"
 	"golang.org/x/crypto/ripemd160"
 )
 
@@ -33,30 +33,37 @@ import (
 // requires a deterministic gas count based on the input size of the Run method of the
 // contract.
 type PrecompiledContract interface {
-	RequiredGas(input []byte) uint64 // RequiredPrice calculates the contract gas use
-	//Run(input []byte) ([]byte, error) // Run runs the precompiled contract
-	Run(input []byte, contract *Contract, evm *EVM) ([]byte, error) // Run runs the precompiled contract
+	RequiredGas(input []byte) uint64  // RequiredPrice calculates the contract gas use
+	Run(input []byte) ([]byte, error) // Run runs the precompiled contract
 }
 
-// PrecompiledContractsByzantium contains the default set of pre-compiled Matrix
+// PrecompiledContractsHomestead contains the default set of pre-compiled Ethereum
+// contracts used in the Frontier and Homestead releases.
+var PrecompiledContractsHomestead = map[common.Address]PrecompiledContract{
+	common.BytesToAddress([]byte{1}): &ecrecover{},
+	common.BytesToAddress([]byte{2}): &sha256hash{},
+	common.BytesToAddress([]byte{3}): &ripemd160hash{},
+	common.BytesToAddress([]byte{4}): &dataCopy{},
+}
+
+// PrecompiledContractsByzantium contains the default set of pre-compiled Ethereum
 // contracts used in the Byzantium release.
 var PrecompiledContractsByzantium = map[common.Address]PrecompiledContract{
-	common.BytesToAddress([]byte{1}):  &ecrecover{},
-	common.BytesToAddress([]byte{2}):  &sha256hash{},
-	common.BytesToAddress([]byte{3}):  &ripemd160hash{},
-	common.BytesToAddress([]byte{4}):  &dataCopy{},
-	common.BytesToAddress([]byte{5}):  &bigModExp{},
-	common.BytesToAddress([]byte{6}):  &bn256Add{},
-	common.BytesToAddress([]byte{7}):  &bn256ScalarMul{},
-	common.BytesToAddress([]byte{8}):  &bn256Pairing{},
-	common.BytesToAddress([]byte{10}): &MatrixDeposit{},
+	common.BytesToAddress([]byte{1}): &ecrecover{},
+	common.BytesToAddress([]byte{2}): &sha256hash{},
+	common.BytesToAddress([]byte{3}): &ripemd160hash{},
+	common.BytesToAddress([]byte{4}): &dataCopy{},
+	common.BytesToAddress([]byte{5}): &bigModExp{},
+	common.BytesToAddress([]byte{6}): &bn256Add{},
+	common.BytesToAddress([]byte{7}): &bn256ScalarMul{},
+	common.BytesToAddress([]byte{8}): &bn256Pairing{},
 }
 
 // RunPrecompiledContract runs and evaluates the output of a precompiled contract.
-func RunPrecompiledContract(p PrecompiledContract, input []byte, contract *Contract, evm *EVM) (ret []byte, err error) {
+func RunPrecompiledContract(p PrecompiledContract, input []byte, contract *Contract) (ret []byte, err error) {
 	gas := p.RequiredGas(input)
 	if contract.UseGas(gas) {
-		return p.Run(input, contract, evm)
+		return p.Run(input)
 	}
 	return nil, ErrOutOfGas
 }
@@ -68,7 +75,7 @@ func (c *ecrecover) RequiredGas(input []byte) uint64 {
 	return params.EcrecoverGas
 }
 
-func (c *ecrecover) Run(input []byte, contract *Contract, evm *EVM) ([]byte, error) {
+func (c *ecrecover) Run(input []byte) ([]byte, error) {
 	const ecRecoverInputLength = 128
 
 	input = common.RightPadBytes(input, ecRecoverInputLength)
@@ -104,12 +111,12 @@ type sha256hash struct{}
 func (c *sha256hash) RequiredGas(input []byte) uint64 {
 	return uint64(len(input)+31)/32*params.Sha256PerWordGas + params.Sha256BaseGas
 }
-func (c *sha256hash) Run(input []byte, contract *Contract, evm *EVM) ([]byte, error) {
+func (c *sha256hash) Run(input []byte) ([]byte, error) {
 	h := sha256.Sum256(input)
 	return h[:], nil
 }
 
-// RIPMED160 implemented as a native contract.
+// RIPEMD160 implemented as a native contract.
 type ripemd160hash struct{}
 
 // RequiredGas returns the gas required to execute the pre-compiled contract.
@@ -119,7 +126,7 @@ type ripemd160hash struct{}
 func (c *ripemd160hash) RequiredGas(input []byte) uint64 {
 	return uint64(len(input)+31)/32*params.Ripemd160PerWordGas + params.Ripemd160BaseGas
 }
-func (c *ripemd160hash) Run(input []byte, contract *Contract, evm *EVM) ([]byte, error) {
+func (c *ripemd160hash) Run(input []byte) ([]byte, error) {
 	ripemd := ripemd160.New()
 	ripemd.Write(input)
 	return common.LeftPadBytes(ripemd.Sum(nil), 32), nil
@@ -135,8 +142,8 @@ type dataCopy struct{}
 func (c *dataCopy) RequiredGas(input []byte) uint64 {
 	return uint64(len(input)+31)/32*params.IdentityPerWordGas + params.IdentityBaseGas
 }
-func (c *dataCopy) Run(input []byte, contract *Contract, evm *EVM) ([]byte, error) {
-	return input, nil
+func (c *dataCopy) Run(in []byte) ([]byte, error) {
+	return in, nil
 }
 
 // bigModExp implements a native big integer exponential modular operation.
@@ -216,7 +223,7 @@ func (c *bigModExp) RequiredGas(input []byte) uint64 {
 	return gas.Uint64()
 }
 
-func (c *bigModExp) Run(input []byte, contract *Contract, evm *EVM) ([]byte, error) {
+func (c *bigModExp) Run(input []byte) ([]byte, error) {
 	var (
 		baseLen = new(big.Int).SetBytes(getData(input, 0, 32)).Uint64()
 		expLen  = new(big.Int).SetBytes(getData(input, 32, 32)).Uint64()
@@ -272,7 +279,7 @@ func (c *bn256Add) RequiredGas(input []byte) uint64 {
 	return params.Bn256AddGas
 }
 
-func (c *bn256Add) Run(input []byte, contract *Contract, evm *EVM) ([]byte, error) {
+func (c *bn256Add) Run(input []byte) ([]byte, error) {
 	x, err := newCurvePoint(getData(input, 0, 64))
 	if err != nil {
 		return nil, err
@@ -294,7 +301,7 @@ func (c *bn256ScalarMul) RequiredGas(input []byte) uint64 {
 	return params.Bn256ScalarMulGas
 }
 
-func (c *bn256ScalarMul) Run(input []byte, contract *Contract, evm *EVM) ([]byte, error) {
+func (c *bn256ScalarMul) Run(input []byte) ([]byte, error) {
 	p, err := newCurvePoint(getData(input, 0, 64))
 	if err != nil {
 		return nil, err
@@ -323,7 +330,7 @@ func (c *bn256Pairing) RequiredGas(input []byte) uint64 {
 	return params.Bn256PairingBaseGas + uint64(len(input)/192)*params.Bn256PairingPerPointGas
 }
 
-func (c *bn256Pairing) Run(input []byte, contract *Contract, evm *EVM) ([]byte, error) {
+func (c *bn256Pairing) Run(input []byte) ([]byte, error) {
 	// Handle some corner cases cheaply
 	if len(input)%192 > 0 {
 		return nil, errBadPairingInput

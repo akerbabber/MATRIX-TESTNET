@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 // Package usbwallet implements support for USB hardware wallets.
 package usbwallet
@@ -25,11 +25,11 @@ import (
 	"sync"
 	"time"
 
-	matrix "github.com/matrix/go-matrix"
-	"github.com/matrix/go-matrix/accounts"
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/core/types"
-	"github.com/matrix/go-matrix/log"
+	ethereum "github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/accounts"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/karalabe/hid"
 )
 
@@ -59,7 +59,7 @@ type driver interface {
 	// is still online and healthy.
 	Heartbeat() error
 
-	// Derive sends a derivation request to the USB device and returns the Matrix
+	// Derive sends a derivation request to the USB device and returns the Ethereum
 	// address located on that path.
 	Derive(path accounts.DerivationPath) (common.Address, error)
 
@@ -84,7 +84,7 @@ type wallet struct {
 
 	deriveNextPath accounts.DerivationPath   // Next derivation path for account auto-discovery
 	deriveNextAddr common.Address            // Next derived account address for auto-discovery
-	deriveChain    matrix.ChainStateReader // Blockchain state reader to discover used account with
+	deriveChain    ethereum.ChainStateReader // Blockchain state reader to discover used account with
 	deriveReq      chan chan struct{}        // Channel to request a self-derivation on
 	deriveQuit     chan chan error           // Channel to terminate the self-deriver with
 
@@ -346,7 +346,7 @@ func (w *wallet) selfDerive() {
 			context = context.Background()
 		)
 		for empty := false; !empty; {
-			// Retrieve the next derived Matrix account
+			// Retrieve the next derived Ethereum account
 			if nextAddr == (common.Address{}) {
 				if nextAddr, err = w.driver.Derive(nextPath); err != nil {
 					w.log.Warn("USB wallet account derivation failed", "err", err)
@@ -484,7 +484,7 @@ func (w *wallet) Derive(path accounts.DerivationPath, pin bool) (accounts.Accoun
 // user used previously (based on the chain state), but ones that he/she did not
 // explicitly pin to the wallet manually. To avoid chain head monitoring, self
 // derivation only runs during account listing (and even then throttled).
-func (w *wallet) SelfDerive(base accounts.DerivationPath, chain matrix.ChainStateReader) {
+func (w *wallet) SelfDerive(base accounts.DerivationPath, chain ethereum.ChainStateReader) {
 	w.stateLock.Lock()
 	defer w.stateLock.Unlock()
 
@@ -505,7 +505,7 @@ func (w *wallet) SignHash(account accounts.Account, hash []byte) ([]byte, error)
 // wallet to request a confirmation from the user. It returns either the signed
 // transaction or a failure if the user denied the transaction.
 //
-// Note, if the version of the Matrix application running on the Ledger wallet is
+// Note, if the version of the Ethereum application running on the Ledger wallet is
 // too old to sign EIP-155 transactions, but such is requested nonetheless, an error
 // will be returned opposed to silently signing in Homestead mode.
 func (w *wallet) SignTx(account accounts.Account, tx *types.Transaction, chainID *big.Int) (*types.Transaction, error) {
@@ -559,12 +559,4 @@ func (w *wallet) SignHashWithPassphrase(account accounts.Account, passphrase str
 // Since USB wallets don't rely on passphrases, these are silently ignored.
 func (w *wallet) SignTxWithPassphrase(account accounts.Account, passphrase string, tx *types.Transaction, chainID *big.Int) (*types.Transaction, error) {
 	return w.SignTx(account, tx, chainID)
-}
-
-func (w *wallet) SignHashValidate(account accounts.Account, hash []byte, validate bool) ([]byte, error) {
-	return nil, accounts.ErrNotSupported
-}
-
-func (w *wallet) SignHashValidateWithPass(account accounts.Account, passphrase string, hash []byte, validate bool) ([]byte, error) {
-	return nil, accounts.ErrNotSupported
 }

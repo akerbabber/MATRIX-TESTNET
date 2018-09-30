@@ -1,18 +1,3 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
-//
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
-//
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 // Code generated - DO NOT EDIT.
 // This file is a generated binding and any manual changes will be lost.
 
@@ -22,12 +7,12 @@ import (
 	"math/big"
 	"strings"
 
-	matrix "github.com/matrix/go-matrix"
-	"github.com/matrix/go-matrix/accounts/abi"
-	"github.com/matrix/go-matrix/accounts/abi/bind"
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/core/types"
-	"github.com/matrix/go-matrix/event"
+	ethereum "github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/event"
 )
 
 // ChequebookABI is the input ABI used to generate the binding from.
@@ -36,7 +21,7 @@ const ChequebookABI = "[{\"constant\":false,\"inputs\":[],\"name\":\"kill\",\"ou
 // ChequebookBin is the compiled bytecode used for deploying new contracts.
 const ChequebookBin = `0x606060405260008054600160a060020a033316600160a060020a03199091161790556102ec806100306000396000f3006060604052600436106100565763ffffffff7c010000000000000000000000000000000000000000000000000000000060003504166341c0e1b581146100585780637bf786f81461006b578063fbf788d61461009c575b005b341561006357600080fd5b6100566100ca565b341561007657600080fd5b61008a600160a060020a03600435166100f1565b60405190815260200160405180910390f35b34156100a757600080fd5b610056600160a060020a036004351660243560ff60443516606435608435610103565b60005433600160a060020a03908116911614156100ef57600054600160a060020a0316ff5b565b60016020526000908152604090205481565b600160a060020a0385166000908152600160205260408120548190861161012957600080fd5b3087876040516c01000000000000000000000000600160a060020a03948516810282529290931690910260148301526028820152604801604051809103902091506001828686866040516000815260200160405260006040516020015260405193845260ff90921660208085019190915260408085019290925260608401929092526080909201915160208103908084039060008661646e5a03f115156101cf57600080fd5b505060206040510351600054600160a060020a039081169116146101f257600080fd5b50600160a060020a03808716600090815260016020526040902054860390301631811161026257600160a060020a0387166000818152600160205260409081902088905582156108fc0290839051600060405180830381858888f19350505050151561025d57600080fd5b6102b7565b6000547f2250e2993c15843b32621c89447cc589ee7a9f049c026986e545d3c2c0c6f97890600160a060020a0316604051600160a060020a03909116815260200160405180910390a186600160a060020a0316ff5b505050505050505600a165627a7a72305820533e856fc37e3d64d1706bcc7dfb6b1d490c8d566ea498d9d01ec08965a896ca0029`
 
-// DeployChequebook deploys a new Matrix contract, binding an instance of Chequebook to it.
+// DeployChequebook deploys a new Ethereum contract, binding an instance of Chequebook to it.
 func DeployChequebook(auth *bind.TransactOpts, backend bind.ContractBackend) (common.Address, *types.Transaction, *Chequebook, error) {
 	parsed, err := abi.JSON(strings.NewReader(ChequebookABI))
 	if err != nil {
@@ -49,29 +34,29 @@ func DeployChequebook(auth *bind.TransactOpts, backend bind.ContractBackend) (co
 	return address, tx, &Chequebook{ChequebookCaller: ChequebookCaller{contract: contract}, ChequebookTransactor: ChequebookTransactor{contract: contract}, ChequebookFilterer: ChequebookFilterer{contract: contract}}, nil
 }
 
-// Chequebook is an auto generated Go binding around an Matrix contract.
+// Chequebook is an auto generated Go binding around an Ethereum contract.
 type Chequebook struct {
 	ChequebookCaller     // Read-only binding to the contract
 	ChequebookTransactor // Write-only binding to the contract
 	ChequebookFilterer   // Log filterer for contract events
 }
 
-// ChequebookCaller is an auto generated read-only Go binding around an Matrix contract.
+// ChequebookCaller is an auto generated read-only Go binding around an Ethereum contract.
 type ChequebookCaller struct {
 	contract *bind.BoundContract // Generic contract wrapper for the low level calls
 }
 
-// ChequebookTransactor is an auto generated write-only Go binding around an Matrix contract.
+// ChequebookTransactor is an auto generated write-only Go binding around an Ethereum contract.
 type ChequebookTransactor struct {
 	contract *bind.BoundContract // Generic contract wrapper for the low level calls
 }
 
-// ChequebookFilterer is an auto generated log filtering Go binding around an Matrix contract events.
+// ChequebookFilterer is an auto generated log filtering Go binding around an Ethereum contract events.
 type ChequebookFilterer struct {
 	contract *bind.BoundContract // Generic contract wrapper for the low level calls
 }
 
-// ChequebookSession is an auto generated Go binding around an Matrix contract,
+// ChequebookSession is an auto generated Go binding around an Ethereum contract,
 // with pre-set call and transact options.
 type ChequebookSession struct {
 	Contract     *Chequebook       // Generic contract binding to set the session for
@@ -79,31 +64,31 @@ type ChequebookSession struct {
 	TransactOpts bind.TransactOpts // Transaction auth options to use throughout this session
 }
 
-// ChequebookCallerSession is an auto generated read-only Go binding around an Matrix contract,
+// ChequebookCallerSession is an auto generated read-only Go binding around an Ethereum contract,
 // with pre-set call options.
 type ChequebookCallerSession struct {
 	Contract *ChequebookCaller // Generic contract caller binding to set the session for
 	CallOpts bind.CallOpts     // Call options to use throughout this session
 }
 
-// ChequebookTransactorSession is an auto generated write-only Go binding around an Matrix contract,
+// ChequebookTransactorSession is an auto generated write-only Go binding around an Ethereum contract,
 // with pre-set transact options.
 type ChequebookTransactorSession struct {
 	Contract     *ChequebookTransactor // Generic contract transactor binding to set the session for
 	TransactOpts bind.TransactOpts     // Transaction auth options to use throughout this session
 }
 
-// ChequebookRaw is an auto generated low-level Go binding around an Matrix contract.
+// ChequebookRaw is an auto generated low-level Go binding around an Ethereum contract.
 type ChequebookRaw struct {
 	Contract *Chequebook // Generic contract binding to access the raw methods on
 }
 
-// ChequebookCallerRaw is an auto generated low-level read-only Go binding around an Matrix contract.
+// ChequebookCallerRaw is an auto generated low-level read-only Go binding around an Ethereum contract.
 type ChequebookCallerRaw struct {
 	Contract *ChequebookCaller // Generic read-only contract binding to access the raw methods on
 }
 
-// ChequebookTransactorRaw is an auto generated low-level write-only Go binding around an Matrix contract.
+// ChequebookTransactorRaw is an auto generated low-level write-only Go binding around an Ethereum contract.
 type ChequebookTransactorRaw struct {
 	Contract *ChequebookTransactor // Generic write-only contract binding to access the raw methods on
 }
@@ -267,7 +252,7 @@ type ChequebookOverdraftIterator struct {
 	event    string              // Event name to use for unpacking event data
 
 	logs chan types.Log        // Log channel receiving the found contract events
-	sub  matrix.Subscription // Subscription for errors, completion and termination
+	sub  ethereum.Subscription // Subscription for errors, completion and termination
 	done bool                  // Whether the subscription completed delivering logs
 	fail error                 // Occurred error to stop iteration
 }

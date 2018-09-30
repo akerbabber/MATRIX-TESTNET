@@ -1,31 +1,31 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 // Contains all the wrappers from the bind package.
 
-package gman
+package geth
 
 import (
 	"math/big"
 	"strings"
 
-	"github.com/matrix/go-matrix/accounts/abi"
-	"github.com/matrix/go-matrix/accounts/abi/bind"
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/core/types"
+	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 )
 
 // Signer is an interaface defining the callback when a contract requires a
@@ -68,7 +68,7 @@ func (opts *CallOpts) SetGasLimit(limit int64)     { /* TODO(karalabe) */ }
 func (opts *CallOpts) SetContext(context *Context) { opts.opts.Context = context.context }
 
 // TransactOpts is the collection of authorization data required to create a
-// valid Matrix transaction.
+// valid Ethereum transaction.
 type TransactOpts struct {
 	opts bind.TransactOpts
 }
@@ -103,7 +103,7 @@ func (opts *TransactOpts) SetGasLimit(limit int64)     { opts.opts.GasLimit = ui
 func (opts *TransactOpts) SetContext(context *Context) { opts.opts.Context = context.context }
 
 // BoundContract is the base wrapper object that reflects a contract on the
-// Matrix network. It contains a collection of methods that are used by the
+// Ethereum network. It contains a collection of methods that are used by the
 // higher level contract bindings to operate.
 type BoundContract struct {
 	contract *bind.BoundContract
@@ -111,9 +111,9 @@ type BoundContract struct {
 	deployer *types.Transaction
 }
 
-// DeployContract deploys a contract onto the Matrix blockchain and binds the
+// DeployContract deploys a contract onto the Ethereum blockchain and binds the
 // deployment address with a wrapper.
-func DeployContract(opts *TransactOpts, abiJSON string, bytecode []byte, client *MatrixClient, args *Interfaces) (contract *BoundContract, _ error) {
+func DeployContract(opts *TransactOpts, abiJSON string, bytecode []byte, client *EthereumClient, args *Interfaces) (contract *BoundContract, _ error) {
 	// Deploy the contract to the network
 	parsed, err := abi.JSON(strings.NewReader(abiJSON))
 	if err != nil {
@@ -132,7 +132,7 @@ func DeployContract(opts *TransactOpts, abiJSON string, bytecode []byte, client 
 
 // BindContract creates a low level contract interface through which calls and
 // transactions may be made through.
-func BindContract(address *Address, abiJSON string, client *MatrixClient) (contract *BoundContract, _ error) {
+func BindContract(address *Address, abiJSON string, client *EthereumClient) (contract *BoundContract, _ error) {
 	parsed, err := abi.JSON(strings.NewReader(abiJSON))
 	if err != nil {
 		return nil, err

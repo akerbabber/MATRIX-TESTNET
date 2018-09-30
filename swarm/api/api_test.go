@@ -1,49 +1,58 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package api
 
 import (
+	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math/big"
 	"os"
 	"testing"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/log"
-	"github.com/matrix/go-matrix/swarm/storage"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/swarm/sctx"
+	"github.com/ethereum/go-ethereum/swarm/storage"
 )
 
-func testApi(t *testing.T, f func(*Api)) {
+func init() {
+	loglevel := flag.Int("loglevel", 2, "loglevel")
+	flag.Parse()
+	log.Root().SetHandler(log.CallerFileHandler(log.LvlFilterHandler(log.Lvl(*loglevel), log.StreamHandler(os.Stderr, log.TerminalFormat(true)))))
+}
+
+func testAPI(t *testing.T, f func(*API, bool)) {
 	datadir, err := ioutil.TempDir("", "bzz-test")
 	if err != nil {
 		t.Fatalf("unable to create temp dir: %v", err)
 	}
-	os.RemoveAll(datadir)
 	defer os.RemoveAll(datadir)
-	dpa, err := storage.NewLocalDPA(datadir)
+	fileStore, err := storage.NewLocalFileStore(datadir, make([]byte, 32))
 	if err != nil {
 		return
 	}
-	api := NewApi(dpa, nil)
-	dpa.Start()
-	f(api)
-	dpa.Stop()
+	api := NewAPI(fileStore, nil, nil, nil)
+	f(api, false)
+	f(api, true)
 }
 
 type testResponse struct {
@@ -82,15 +91,14 @@ func expResponse(content string, mimeType string, status int) *Response {
 	return &Response{mimeType, status, int64(len(content)), content}
 }
 
-// func testGet(t *testing.T, api *Api, bzzhash string) *testResponse {
-func testGet(t *testing.T, api *Api, bzzhash, path string) *testResponse {
-	key := storage.Key(common.Hex2Bytes(bzzhash))
-	reader, mimeType, status, err := api.Get(key, path)
+func testGet(t *testing.T, api *API, bzzhash, path string) *testResponse {
+	addr := storage.Address(common.Hex2Bytes(bzzhash))
+	reader, mimeType, status, _, err := api.Get(context.TODO(), NOOPDecrypt, addr, path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	quitC := make(chan bool)
-	size, err := reader.Size(quitC)
+	size, err := reader.Size(context.TODO(), quitC)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -106,27 +114,31 @@ func testGet(t *testing.T, api *Api, bzzhash, path string) *testResponse {
 }
 
 func TestApiPut(t *testing.T) {
-	testApi(t, func(api *Api) {
+	testAPI(t, func(api *API, toEncrypt bool) {
 		content := "hello"
 		exp := expResponse(content, "text/plain", 0)
-		// exp := expResponse([]byte(content), "text/plain", 0)
-		key, err := api.Put(content, exp.MimeType)
+		ctx := context.TODO()
+		addr, wait, err := api.Put(ctx, content, exp.MimeType, toEncrypt)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		resp := testGet(t, api, key.String(), "")
+		err = wait(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		resp := testGet(t, api, addr.Hex(), "")
 		checkResponse(t, resp, exp)
 	})
 }
 
 // testResolver implements the Resolver interface and either returns the given
 // hash if it is set, or returns a "name not found" error
-type testResolver struct {
+type testResolveValidator struct {
 	hash *common.Hash
 }
 
-func newTestResolver(addr string) *testResolver {
-	r := &testResolver{}
+func newTestResolveValidator(addr string) *testResolveValidator {
+	r := &testResolveValidator{}
 	if addr != "" {
 		hash := common.HexToHash(addr)
 		r.hash = &hash
@@ -134,21 +146,28 @@ func newTestResolver(addr string) *testResolver {
 	return r
 }
 
-func (t *testResolver) Resolve(addr string) (common.Hash, error) {
+func (t *testResolveValidator) Resolve(addr string) (common.Hash, error) {
 	if t.hash == nil {
 		return common.Hash{}, fmt.Errorf("DNS name not found: %q", addr)
 	}
 	return *t.hash, nil
 }
 
+func (t *testResolveValidator) Owner(node [32]byte) (addr common.Address, err error) {
+	return
+}
+func (t *testResolveValidator) HeaderByNumber(context.Context, *big.Int) (header *types.Header, err error) {
+	return
+}
+
 // TestAPIResolve tests resolving URIs which can either contain content hashes
 // or ENS names
 func TestAPIResolve(t *testing.T) {
-	ensAddr := "swarm.man"
+	ensAddr := "swarm.eth"
 	hashAddr := "1111111111111111111111111111111111111111111111111111111111111111"
 	resolvedAddr := "2222222222222222222222222222222222222222222222222222222222222222"
-	doesResolve := newTestResolver(resolvedAddr)
-	doesntResolve := newTestResolver("")
+	doesResolve := newTestResolveValidator(resolvedAddr)
+	doesntResolve := newTestResolveValidator("")
 
 	type test struct {
 		desc      string
@@ -170,7 +189,7 @@ func TestAPIResolve(t *testing.T) {
 			desc:      "DNS not configured, ENS address, returns error",
 			dns:       nil,
 			addr:      ensAddr,
-			expectErr: errors.New(`no DNS to resolve name: "swarm.man"`),
+			expectErr: errors.New(`no DNS to resolve name: "swarm.eth"`),
 		},
 		{
 			desc:   "DNS configured, hash address, hash resolves, returns resolved address",
@@ -202,23 +221,23 @@ func TestAPIResolve(t *testing.T) {
 			dns:       doesResolve,
 			addr:      ensAddr,
 			immutable: true,
-			expectErr: errors.New(`immutable address not a content hash: "swarm.man"`),
+			expectErr: errors.New(`immutable address not a content hash: "swarm.eth"`),
 		},
 		{
 			desc:      "DNS configured, ENS address, name doesn't resolve, returns error",
 			dns:       doesntResolve,
 			addr:      ensAddr,
-			expectErr: errors.New(`DNS name not found: "swarm.man"`),
+			expectErr: errors.New(`DNS name not found: "swarm.eth"`),
 		},
 	}
 	for _, x := range tests {
 		t.Run(x.desc, func(t *testing.T) {
-			api := &Api{dns: x.dns}
+			api := &API{dns: x.dns}
 			uri := &URI{Addr: x.addr, Scheme: "bzz"}
 			if x.immutable {
 				uri.Scheme = "bzz-immutable"
 			}
-			res, err := api.Resolve(uri)
+			res, err := api.ResolveURI(context.TODO(), uri, "")
 			if err == nil {
 				if x.expectErr != nil {
 					t.Fatalf("expected error %q, got result %q", x.expectErr, res)
@@ -239,15 +258,15 @@ func TestAPIResolve(t *testing.T) {
 }
 
 func TestMultiResolver(t *testing.T) {
-	doesntResolve := newTestResolver("")
+	doesntResolve := newTestResolveValidator("")
 
-	manAddr := "swarm.man"
-	manHash := "0x2222222222222222222222222222222222222222222222222222222222222222"
-	manResolve := newTestResolver(manHash)
+	ethAddr := "swarm.eth"
+	ethHash := "0x2222222222222222222222222222222222222222222222222222222222222222"
+	ethResolve := newTestResolveValidator(ethHash)
 
 	testAddr := "swarm.test"
 	testHash := "0x1111111111111111111111111111111111111111111111111111111111111111"
-	testResolve := newTestResolver(testHash)
+	testResolve := newTestResolveValidator(testHash)
 
 	tests := []struct {
 		desc   string
@@ -263,70 +282,70 @@ func TestMultiResolver(t *testing.T) {
 		},
 		{
 			desc:   "One default resolver, returns resolved address",
-			r:      NewMultiResolver(MultiResolverOptionWithResolver(manResolve, "")),
-			addr:   manAddr,
-			result: manHash,
+			r:      NewMultiResolver(MultiResolverOptionWithResolver(ethResolve, "")),
+			addr:   ethAddr,
+			result: ethHash,
 		},
 		{
 			desc: "Two default resolvers, returns resolved address",
 			r: NewMultiResolver(
-				MultiResolverOptionWithResolver(manResolve, ""),
-				MultiResolverOptionWithResolver(manResolve, ""),
+				MultiResolverOptionWithResolver(ethResolve, ""),
+				MultiResolverOptionWithResolver(ethResolve, ""),
 			),
-			addr:   manAddr,
-			result: manHash,
+			addr:   ethAddr,
+			result: ethHash,
 		},
 		{
 			desc: "Two default resolvers, first doesn't resolve, returns resolved address",
 			r: NewMultiResolver(
 				MultiResolverOptionWithResolver(doesntResolve, ""),
-				MultiResolverOptionWithResolver(manResolve, ""),
+				MultiResolverOptionWithResolver(ethResolve, ""),
 			),
-			addr:   manAddr,
-			result: manHash,
+			addr:   ethAddr,
+			result: ethHash,
 		},
 		{
 			desc: "Default resolver doesn't resolve, tld resolver resolve, returns resolved address",
 			r: NewMultiResolver(
 				MultiResolverOptionWithResolver(doesntResolve, ""),
-				MultiResolverOptionWithResolver(manResolve, "man"),
+				MultiResolverOptionWithResolver(ethResolve, "eth"),
 			),
-			addr:   manAddr,
-			result: manHash,
+			addr:   ethAddr,
+			result: ethHash,
 		},
 		{
 			desc: "Three TLD resolvers, third resolves, returns resolved address",
 			r: NewMultiResolver(
-				MultiResolverOptionWithResolver(doesntResolve, "man"),
-				MultiResolverOptionWithResolver(doesntResolve, "man"),
-				MultiResolverOptionWithResolver(manResolve, "man"),
+				MultiResolverOptionWithResolver(doesntResolve, "eth"),
+				MultiResolverOptionWithResolver(doesntResolve, "eth"),
+				MultiResolverOptionWithResolver(ethResolve, "eth"),
 			),
-			addr:   manAddr,
-			result: manHash,
+			addr:   ethAddr,
+			result: ethHash,
 		},
 		{
 			desc: "One TLD resolver doesn't resolve, returns error",
 			r: NewMultiResolver(
 				MultiResolverOptionWithResolver(doesntResolve, ""),
-				MultiResolverOptionWithResolver(manResolve, "man"),
+				MultiResolverOptionWithResolver(ethResolve, "eth"),
 			),
-			addr:   manAddr,
-			result: manHash,
+			addr:   ethAddr,
+			result: ethHash,
 		},
 		{
 			desc: "One defautl and one TLD resolver, all doesn't resolve, returns error",
 			r: NewMultiResolver(
 				MultiResolverOptionWithResolver(doesntResolve, ""),
-				MultiResolverOptionWithResolver(doesntResolve, "man"),
+				MultiResolverOptionWithResolver(doesntResolve, "eth"),
 			),
-			addr:   manAddr,
-			result: manHash,
-			err:    errors.New(`DNS name not found: "swarm.man"`),
+			addr:   ethAddr,
+			result: ethHash,
+			err:    errors.New(`DNS name not found: "swarm.eth"`),
 		},
 		{
 			desc: "Two TLD resolvers, both resolve, returns resolved address",
 			r: NewMultiResolver(
-				MultiResolverOptionWithResolver(manResolve, "man"),
+				MultiResolverOptionWithResolver(ethResolve, "eth"),
 				MultiResolverOptionWithResolver(testResolve, "test"),
 			),
 			addr:   testAddr,
@@ -335,7 +354,7 @@ func TestMultiResolver(t *testing.T) {
 		{
 			desc: "One TLD resolver, no default resolver, returns error for different TLD",
 			r: NewMultiResolver(
-				MultiResolverOptionWithResolver(manResolve, "man"),
+				MultiResolverOptionWithResolver(ethResolve, "eth"),
 			),
 			addr: testAddr,
 			err:  NewNoResolverError("test"),
@@ -360,5 +379,57 @@ func TestMultiResolver(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestDecryptOriginForbidden(t *testing.T) {
+	ctx := context.TODO()
+	ctx = sctx.SetHost(ctx, "swarm-gateways.net")
+
+	me := &ManifestEntry{
+		Access: &AccessEntry{Type: AccessTypePass},
+	}
+
+	api := NewAPI(nil, nil, nil, nil)
+
+	f := api.Decryptor(ctx, "")
+	err := f(me)
+	if err != ErrDecryptDomainForbidden {
+		t.Fatalf("should fail with ErrDecryptDomainForbidden, got %v", err)
+	}
+}
+
+func TestDecryptOrigin(t *testing.T) {
+	for _, v := range []struct {
+		host        string
+		expectError error
+	}{
+		{
+			host:        "localhost",
+			expectError: ErrDecrypt,
+		},
+		{
+			host:        "127.0.0.1",
+			expectError: ErrDecrypt,
+		},
+		{
+			host:        "swarm-gateways.net",
+			expectError: ErrDecryptDomainForbidden,
+		},
+	} {
+		ctx := context.TODO()
+		ctx = sctx.SetHost(ctx, v.host)
+
+		me := &ManifestEntry{
+			Access: &AccessEntry{Type: AccessTypePass},
+		}
+
+		api := NewAPI(nil, nil, nil, nil)
+
+		f := api.Decryptor(ctx, "")
+		err := f(me)
+		if err != v.expectError {
+			t.Fatalf("should fail with %v, got %v", v.expectError, err)
+		}
 	}
 }

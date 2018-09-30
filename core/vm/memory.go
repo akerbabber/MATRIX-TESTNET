@@ -1,46 +1,65 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2015 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package vm
 
-import "fmt"
+import (
+	"fmt"
+	"math/big"
 
-// Memory implements a simple memory model for the matrix virtual machine.
+	"github.com/ethereum/go-ethereum/common/math"
+)
+
+// Memory implements a simple memory model for the ethereum virtual machine.
 type Memory struct {
 	store       []byte
 	lastGasCost uint64
 }
 
+// NewMemory returns a new memory model.
 func NewMemory() *Memory {
 	return &Memory{}
 }
 
 // Set sets offset + size to value
 func (m *Memory) Set(offset, size uint64, value []byte) {
-	// length of store may never be less than offset + size.
-	// The store should be resized PRIOR to setting the memory
-	if size > uint64(len(m.store)) {
-		panic("INVALID memory: store empty")
-	}
-
 	// It's possible the offset is greater than 0 and size equals 0. This is because
 	// the calcMemSize (common.go) could potentially return 0 when size is zero (NO-OP)
 	if size > 0 {
+		// length of store may never be less than offset + size.
+		// The store should be resized PRIOR to setting the memory
+		if offset+size > uint64(len(m.store)) {
+			panic("invalid memory: store empty")
+		}
 		copy(m.store[offset:offset+size], value)
 	}
+}
+
+// Set32 sets the 32 bytes starting at offset to the value of val, left-padded with zeroes to
+// 32 bytes.
+func (m *Memory) Set32(offset uint64, val *big.Int) {
+	// length of store may never be less than offset + size.
+	// The store should be resized PRIOR to setting the memory
+	if offset+32 > uint64(len(m.store)) {
+		panic("invalid memory: store empty")
+	}
+	// Zero the memory area
+	copy(m.store[offset:offset+32], []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
+	// Fill in relevant bits
+	math.ReadBits(val, m.store[offset:offset+32])
 }
 
 // Resize resizes the memory to size
@@ -89,6 +108,7 @@ func (m *Memory) Data() []byte {
 	return m.store
 }
 
+// Print dumps the content of the memory.
 func (m *Memory) Print() {
 	fmt.Printf("### mem %d bytes ###\n", len(m.store))
 	if len(m.store) > 0 {

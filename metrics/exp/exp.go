@@ -1,18 +1,3 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
-//
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
-//
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 // Hook go-metrics into expvar
 // on any /debug/metrics request, load all vars from the registry into expvar, and execute regular expvar handler
 package exp
@@ -23,7 +8,7 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/matrix/go-matrix/metrics"
+	"github.com/ethereum/go-ethereum/metrics"
 )
 
 type exp struct {
@@ -149,21 +134,34 @@ func (exp *exp) publishTimer(name string, metric metrics.Timer) {
 	exp.getFloat(name + ".mean-rate").Set(t.RateMean())
 }
 
+func (exp *exp) publishResettingTimer(name string, metric metrics.ResettingTimer) {
+	t := metric.Snapshot()
+	ps := t.Percentiles([]float64{50, 75, 95, 99})
+	exp.getInt(name + ".count").Set(int64(len(t.Values())))
+	exp.getFloat(name + ".mean").Set(t.Mean())
+	exp.getInt(name + ".50-percentile").Set(ps[0])
+	exp.getInt(name + ".75-percentile").Set(ps[1])
+	exp.getInt(name + ".95-percentile").Set(ps[2])
+	exp.getInt(name + ".99-percentile").Set(ps[3])
+}
+
 func (exp *exp) syncToExpvar() {
 	exp.registry.Each(func(name string, i interface{}) {
-		switch i.(type) {
+		switch i := i.(type) {
 		case metrics.Counter:
-			exp.publishCounter(name, i.(metrics.Counter))
+			exp.publishCounter(name, i)
 		case metrics.Gauge:
-			exp.publishGauge(name, i.(metrics.Gauge))
+			exp.publishGauge(name, i)
 		case metrics.GaugeFloat64:
-			exp.publishGaugeFloat64(name, i.(metrics.GaugeFloat64))
+			exp.publishGaugeFloat64(name, i)
 		case metrics.Histogram:
-			exp.publishHistogram(name, i.(metrics.Histogram))
+			exp.publishHistogram(name, i)
 		case metrics.Meter:
-			exp.publishMeter(name, i.(metrics.Meter))
+			exp.publishMeter(name, i)
 		case metrics.Timer:
-			exp.publishTimer(name, i.(metrics.Timer))
+			exp.publishTimer(name, i)
+		case metrics.ResettingTimer:
+			exp.publishResettingTimer(name, i)
 		default:
 			panic(fmt.Sprintf("unsupported type for '%s': %T", name, i))
 		}

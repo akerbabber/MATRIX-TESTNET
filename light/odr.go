@@ -1,50 +1,55 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2015 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 // Package light implements on-demand retrieval capable state and chain objects
-// for the Matrix Light Client.
+// for the Ethereum Light Client.
 package light
 
 import (
 	"context"
+	"errors"
 	"math/big"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/core"
-	"github.com/matrix/go-matrix/core/rawdb"
-	"github.com/matrix/go-matrix/core/types"
-	"github.com/matrix/go-matrix/mandb"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/rawdb"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/ethdb"
 )
 
 // NoOdr is the default context passed to an ODR capable function when the ODR
 // service is not required.
 var NoOdr = context.Background()
 
+// ErrNoPeers is returned if no peers capable of serving a queued request are available
+var ErrNoPeers = errors.New("no suitable peers available")
+
 // OdrBackend is an interface to a backend service that handles ODR retrievals type
 type OdrBackend interface {
-	Database() mandb.Database
+	Database() ethdb.Database
 	ChtIndexer() *core.ChainIndexer
 	BloomTrieIndexer() *core.ChainIndexer
 	BloomIndexer() *core.ChainIndexer
 	Retrieve(ctx context.Context, req OdrRequest) error
+	IndexerConfig() *IndexerConfig
 }
 
 // OdrRequest is an interface for retrieval requests
 type OdrRequest interface {
-	StoreResult(db mandb.Database)
+	StoreResult(db ethdb.Database)
 }
 
 // TrieID identifies a state or account storage trie
@@ -86,7 +91,7 @@ type TrieRequest struct {
 }
 
 // StoreResult stores the retrieved data in local database
-func (req *TrieRequest) StoreResult(db mandb.Database) {
+func (req *TrieRequest) StoreResult(db ethdb.Database) {
 	req.Proof.Store(db)
 }
 
@@ -99,7 +104,7 @@ type CodeRequest struct {
 }
 
 // StoreResult stores the retrieved data in local database
-func (req *CodeRequest) StoreResult(db mandb.Database) {
+func (req *CodeRequest) StoreResult(db ethdb.Database) {
 	db.Put(req.Hash[:], req.Data)
 }
 
@@ -112,7 +117,7 @@ type BlockRequest struct {
 }
 
 // StoreResult stores the retrieved data in local database
-func (req *BlockRequest) StoreResult(db mandb.Database) {
+func (req *BlockRequest) StoreResult(db ethdb.Database) {
 	rawdb.WriteBodyRLP(db, req.Hash, req.Number, req.Rlp)
 }
 
@@ -125,13 +130,14 @@ type ReceiptsRequest struct {
 }
 
 // StoreResult stores the retrieved data in local database
-func (req *ReceiptsRequest) StoreResult(db mandb.Database) {
+func (req *ReceiptsRequest) StoreResult(db ethdb.Database) {
 	rawdb.WriteReceipts(db, req.Hash, req.Number, req.Receipts)
 }
 
 // ChtRequest is the ODR request type for state/storage trie entries
 type ChtRequest struct {
 	OdrRequest
+	Config           *IndexerConfig
 	ChtNum, BlockNum uint64
 	ChtRoot          common.Hash
 	Header           *types.Header
@@ -140,7 +146,7 @@ type ChtRequest struct {
 }
 
 // StoreResult stores the retrieved data in local database
-func (req *ChtRequest) StoreResult(db mandb.Database) {
+func (req *ChtRequest) StoreResult(db ethdb.Database) {
 	hash, num := req.Header.Hash(), req.Header.Number.Uint64()
 
 	rawdb.WriteHeader(db, req.Header)
@@ -151,18 +157,19 @@ func (req *ChtRequest) StoreResult(db mandb.Database) {
 // BloomRequest is the ODR request type for retrieving bloom filters from a CHT structure
 type BloomRequest struct {
 	OdrRequest
-	BloomTrieNum   uint64
-	BitIdx         uint
-	SectionIdxList []uint64
-	BloomTrieRoot  common.Hash
-	BloomBits      [][]byte
-	Proofs         *NodeSet
+	Config           *IndexerConfig
+	BloomTrieNum     uint64
+	BitIdx           uint
+	SectionIndexList []uint64
+	BloomTrieRoot    common.Hash
+	BloomBits        [][]byte
+	Proofs           *NodeSet
 }
 
 // StoreResult stores the retrieved data in local database
-func (req *BloomRequest) StoreResult(db mandb.Database) {
-	for i, sectionIdx := range req.SectionIdxList {
-		sectionHead := rawdb.ReadCanonicalHash(db, (sectionIdx+1)*BloomTrieFrequency-1)
+func (req *BloomRequest) StoreResult(db ethdb.Database) {
+	for i, sectionIdx := range req.SectionIndexList {
+		sectionHead := rawdb.ReadCanonicalHash(db, (sectionIdx+1)*req.Config.BloomTrieSize-1)
 		// if we don't have the canonical hash stored for this section head number, we'll still store it under
 		// a key with a zero sectionHead. GetBloomBits will look there too if we still don't have the canonical
 		// hash. In the unlikely case we've retrieved the section head hash since then, we'll just retrieve the

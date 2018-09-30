@@ -1,28 +1,28 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2015 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package core
 
 import (
 	"fmt"
 
-	"github.com/matrix/go-matrix/consensus"
-	"github.com/matrix/go-matrix/core/state"
-	"github.com/matrix/go-matrix/core/types"
-	"github.com/matrix/go-matrix/params"
+	"github.com/ethereum/go-ethereum/consensus"
+	"github.com/ethereum/go-ethereum/core/state"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/params"
 )
 
 // BlockValidator is responsible for validating block headers, uncles and
@@ -45,7 +45,7 @@ func NewBlockValidator(config *params.ChainConfig, blockchain *BlockChain, engin
 	return validator
 }
 
-// ValidateBody validates the given block's uncles and verifies the the block
+// ValidateBody validates the given block's uncles and verifies the block
 // header's transaction and uncle roots. The headers are assumed to be already
 // validated at this point.
 func (v *BlockValidator) ValidateBody(block *types.Block) error {
@@ -101,9 +101,11 @@ func (v *BlockValidator) ValidateState(block, parent *types.Block, statedb *stat
 	return nil
 }
 
-// CalcGasLimit computes the gas limit of the next block after parent.
-// This is miner strategy, not consensus protocol.
-func CalcGasLimit(parent *types.Block) uint64 {
+// CalcGasLimit computes the gas limit of the next block after parent. It aims
+// to keep the baseline gas above the provided floor, and increase it towards the
+// ceil if the blocks are full. If the ceil is exceeded, it will always decrease
+// the gas allowance.
+func CalcGasLimit(parent *types.Block, gasFloor, gasCeil uint64) uint64 {
 	// contrib = (parentGasUsed * 3 / 2) / 1024
 	contrib := (parent.GasUsed() + parent.GasUsed()/2) / params.GasLimitBoundDivisor
 
@@ -121,12 +123,16 @@ func CalcGasLimit(parent *types.Block) uint64 {
 	if limit < params.MinGasLimit {
 		limit = params.MinGasLimit
 	}
-	// however, if we're now below the target (TargetGasLimit) we increase the
-	// limit as much as we can (parentGasLimit / 1024 -1)
-	if limit < params.TargetGasLimit {
+	// If we're outside our allowed gas range, we try to hone towards them
+	if limit < gasFloor {
 		limit = parent.GasLimit() + decay
-		if limit > params.TargetGasLimit {
-			limit = params.TargetGasLimit
+		if limit > gasFloor {
+			limit = gasFloor
+		}
+	} else if limit > gasCeil {
+		limit = parent.GasLimit() - decay
+		if limit < gasCeil {
+			limit = gasCeil
 		}
 	}
 	return limit

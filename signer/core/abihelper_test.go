@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2018 The go-ethereum Authors
+// This file is part of go-ethereum.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// go-ethereum is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// go-ethereum is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU General Public License
+// along with go-ethereum. If not, see <http://www.gnu.org/licenses/>.
 
 package core
 
@@ -25,8 +25,8 @@ import (
 	"math/big"
 	"reflect"
 
-	"github.com/matrix/go-matrix/accounts/abi"
-	"github.com/matrix/go-matrix/common"
+	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/common"
 )
 
 func verify(t *testing.T, jsondata, calldata string, exp []interface{}) {
@@ -71,7 +71,7 @@ func TestNewUnpacker(t *testing.T) {
 				[10]byte{49, 50, 51, 52, 53, 54, 55, 56, 57, 48},
 				common.Hex2Bytes("48656c6c6f2c20776f726c6421"),
 			},
-		}, { // https://github.com/matrix/wiki/wiki/Matrix-Contract-ABI#examples
+		}, { // https://github.com/ethereum/wiki/wiki/Ethereum-Contract-ABI#examples
 			`[{"type":"function","name":"sam","inputs":[{"type":"bytes"},{"type":"bool"},{"type":"uint256[]"}]}]`,
 			//  "dave", true and [1,2,3]
 			"a5643bf20000000000000000000000000000000000000000000000000000000000000060000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000a0000000000000000000000000000000000000000000000000000000000000000464617665000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000003",
@@ -100,16 +100,6 @@ func TestNewUnpacker(t *testing.T) {
 
 }
 
-/*
-func TestReflect(t *testing.T) {
-	a := big.NewInt(0)
-	b := new(big.Int).SetBytes([]byte{0x00})
-	if !reflect.DeepEqual(a, b) {
-		t.Fatalf("Nope, %v != %v", a, b)
-	}
-}
-*/
-
 func TestCalldataDecoding(t *testing.T) {
 
 	// send(uint256)                              : a52c101e
@@ -123,7 +113,7 @@ func TestCalldataDecoding(t *testing.T) {
 	{"type":"function","name":"sam","inputs":[{"name":"a","type":"bytes"},{"name":"a","type":"bool"},{"name":"a","type":"uint256[]"}]}
 ]`
 	//Expected failures
-	for _, hexdata := range []string{
+	for i, hexdata := range []string{
 		"a52c101e00000000000000000000000000000000000000000000000000000000000000120000000000000000000000000000000000000000000000000000000000000042",
 		"a52c101e000000000000000000000000000000000000000000000000000000000000001200",
 		"a52c101e00000000000000000000000000000000000000000000000000000000000000",
@@ -139,19 +129,18 @@ func TestCalldataDecoding(t *testing.T) {
 		"42958b5400000000000000000000000000000000000000000000000000000000000000120000000000000000000000000000000000000000000000000000000000000042",
 		// Too short compareAndApprove
 		"a52c101e00ff0000000000000000000000000000000000000000000000000000000000120000000000000000000000000000000000000000000000000000000000000042",
-		// From https://github.com/matrix/wiki/wiki/Matrix-Contract-ABI
+		// From https://github.com/ethereum/wiki/wiki/Ethereum-Contract-ABI
 		// contains a bool with illegal values
 		"a5643bf20000000000000000000000000000000000000000000000000000000000000060000000000000000000000000000000000000000000000000000000000000001100000000000000000000000000000000000000000000000000000000000000a0000000000000000000000000000000000000000000000000000000000000000464617665000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000003",
 	} {
 		_, err := parseCallData(common.Hex2Bytes(hexdata), jsondata)
 		if err == nil {
-			t.Errorf("Expected decoding to fail: %s", hexdata)
+			t.Errorf("test %d: expected decoding to fail: %s", i, hexdata)
 		}
 	}
-
 	//Expected success
-	for _, hexdata := range []string{
-		// From https://github.com/matrix/wiki/wiki/Matrix-Contract-ABI
+	for i, hexdata := range []string{
+		// From https://github.com/ethereum/wiki/wiki/Ethereum-Contract-ABI
 		"a5643bf20000000000000000000000000000000000000000000000000000000000000060000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000a0000000000000000000000000000000000000000000000000000000000000000464617665000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000003",
 		"a52c101e0000000000000000000000000000000000000000000000000000000000000012",
 		"a52c101eFFffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -169,7 +158,7 @@ func TestCalldataDecoding(t *testing.T) {
 	} {
 		_, err := parseCallData(common.Hex2Bytes(hexdata), jsondata)
 		if err != nil {
-			t.Errorf("Unexpected failure on input %s:\n %v (%d bytes) ", hexdata, err, len(common.Hex2Bytes(hexdata)))
+			t.Errorf("test %d: unexpected failure on input %s:\n %v (%d bytes) ", i, hexdata, err, len(common.Hex2Bytes(hexdata)))
 		}
 	}
 }
@@ -243,5 +232,20 @@ func TestCustomABI(t *testing.T) {
 	_, err = abidb2.LookupMethodSelector(calldata)
 	if err != nil {
 		t.Fatalf("Save failed: should find a match for abi signature after loading from disk")
+	}
+}
+
+func TestMaliciousAbiStrings(t *testing.T) {
+	tests := []string{
+		"func(uint256,uint256,[]uint256)",
+		"func(uint256,uint256,uint256,)",
+		"func(,uint256,uint256,uint256)",
+	}
+	data := common.Hex2Bytes("4401a6e40000000000000000000000000000000000000000000000000000000000000012")
+	for i, tt := range tests {
+		_, err := testSelector(tt, data)
+		if err == nil {
+			t.Errorf("test %d: expected error for selector '%v'", i, tt)
+		}
 	}
 }

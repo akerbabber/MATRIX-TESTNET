@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package whisperv6
 
@@ -26,16 +26,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/crypto"
-	"github.com/matrix/go-matrix/log"
-	"github.com/matrix/go-matrix/p2p"
-	"github.com/matrix/go-matrix/rlp"
-	"github.com/matrix/go-matrix/rpc"
+	mapset "github.com/deckarep/golang-set"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/p2p"
+	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/syndtr/goleveldb/leveldb/errors"
 	"golang.org/x/crypto/pbkdf2"
 	"golang.org/x/sync/syncmap"
-	set "gopkg.in/fatih/set.v0"
 )
 
 // Statistics holds several message-related counter for analytics
@@ -49,15 +49,17 @@ type Statistics struct {
 }
 
 const (
-	maxMsgSizeIdx           = iota // Maximal message length allowed by the whisper node
-	overflowIdx                    // Indicator of message queue overflow
-	minPowIdx                      // Minimal PoW required by the whisper node
-	minPowToleranceIdx             // Minimal PoW tolerated by the whisper node for a limited time
-	bloomFilterIdx                 // Bloom filter for topics of interest for this node
-	bloomFilterToleranceIdx        // Bloom filter tolerated by the whisper node for a limited time
+	maxMsgSizeIdx                            = iota // Maximal message length allowed by the whisper node
+	overflowIdx                                     // Indicator of message queue overflow
+	minPowIdx                                       // Minimal PoW required by the whisper node
+	minPowToleranceIdx                              // Minimal PoW tolerated by the whisper node for a limited time
+	bloomFilterIdx                                  // Bloom filter for topics of interest for this node
+	bloomFilterToleranceIdx                         // Bloom filter tolerated by the whisper node for a limited time
+	lightClientModeIdx                              // Light client mode. (does not forward any messages)
+	restrictConnectionBetweenLightClientsIdx        // Restrict connection between two light clients
 )
 
-// Whisper represents a dark communication interface through the Matrix
+// Whisper represents a dark communication interface through the Ethereum
 // network, using its very own P2P communication layer.
 type Whisper struct {
 	protocol p2p.Protocol // Protocol description and parameters
@@ -69,7 +71,7 @@ type Whisper struct {
 
 	poolMu      sync.RWMutex              // Mutex to sync the message and expiration pools
 	envelopes   map[common.Hash]*Envelope // Pool of envelopes currently tracked by this node
-	expirations map[uint32]*set.SetNonTS  // Message expiration pool
+	expirations map[uint32]mapset.Set     // Message expiration pool
 
 	peerMu sync.RWMutex       // Mutex to sync the active peer set
 	peers  map[*Peer]struct{} // Set of currently active peers
@@ -82,15 +84,13 @@ type Whisper struct {
 
 	syncAllowance int // maximum time in seconds allowed to process the whisper-related messages
 
-	lightClient bool // indicates is this node is pure light client (does not forward any messages)
-
 	statsMu sync.Mutex // guard stats
 	stats   Statistics // Statistics of whisper node
 
 	mailServer MailServer // MailServer interface
 }
 
-// New creates a Whisper client ready to communicate through the Matrix P2P network.
+// New creates a Whisper client ready to communicate through the Ethereum P2P network.
 func New(cfg *Config) *Whisper {
 	if cfg == nil {
 		cfg = &DefaultConfig
@@ -100,7 +100,7 @@ func New(cfg *Config) *Whisper {
 		privateKeys:   make(map[string]*ecdsa.PrivateKey),
 		symKeys:       make(map[string][]byte),
 		envelopes:     make(map[common.Hash]*Envelope),
-		expirations:   make(map[uint32]*set.SetNonTS),
+		expirations:   make(map[uint32]mapset.Set),
 		peers:         make(map[*Peer]struct{}),
 		messageQueue:  make(chan *Envelope, messageQueueLimit),
 		p2pMsgQueue:   make(chan *Envelope, messageQueueLimit),
@@ -113,6 +113,7 @@ func New(cfg *Config) *Whisper {
 	whisper.settings.Store(minPowIdx, cfg.MinimumAcceptedPOW)
 	whisper.settings.Store(maxMsgSizeIdx, cfg.MaxMessageSize)
 	whisper.settings.Store(overflowIdx, false)
+	whisper.settings.Store(restrictConnectionBetweenLightClientsIdx, cfg.RestrictConnectionBetweenLightClients)
 
 	// p2p whisper sub protocol handler
 	whisper.protocol = p2p.Protocol{
@@ -276,6 +277,31 @@ func (whisper *Whisper) SetMinimumPowTest(val float64) {
 	whisper.settings.Store(minPowToleranceIdx, val)
 }
 
+//SetLightClientMode makes node light client (does not forward any messages)
+func (whisper *Whisper) SetLightClientMode(v bool) {
+	whisper.settings.Store(lightClientModeIdx, v)
+}
+
+//LightClientMode indicates is this node is light client (does not forward any messages)
+func (whisper *Whisper) LightClientMode() bool {
+	val, exist := whisper.settings.Load(lightClientModeIdx)
+	if !exist || val == nil {
+		return false
+	}
+	v, ok := val.(bool)
+	return v && ok
+}
+
+//LightClientModeConnectionRestricted indicates that connection to light client in light client mode not allowed
+func (whisper *Whisper) LightClientModeConnectionRestricted() bool {
+	val, exist := whisper.settings.Load(restrictConnectionBetweenLightClientsIdx)
+	if !exist || val == nil {
+		return false
+	}
+	v, ok := val.(bool)
+	return v && ok
+}
+
 func (whisper *Whisper) notifyPeersAboutPowRequirementChange(pow float64) {
 	arr := whisper.getPeers()
 	for _, p := range arr {
@@ -423,7 +449,7 @@ func (whisper *Whisper) AddKeyPair(key *ecdsa.PrivateKey) (string, error) {
 	return id, nil
 }
 
-// HasKeyPair checks if the the whisper node is configured with the private key
+// HasKeyPair checks if the whisper node is configured with the private key
 // of the specified public pair.
 func (whisper *Whisper) HasKeyPair(id string) bool {
 	whisper.keyMu.RLock()
@@ -650,7 +676,7 @@ func (whisper *Whisper) runMessageLoop(p *Peer, rw p2p.MsgReadWriter) error {
 		// fetch the next packet
 		packet, err := rw.ReadMsg()
 		if err != nil {
-			log.Warn("message loop", "peer", p.peer.ID(), "err", err)
+			log.Info("message loop", "peer", p.peer.ID(), "err", err)
 			return err
 		}
 		if packet.Size > whisper.MaxMessageSize() {
@@ -672,7 +698,7 @@ func (whisper *Whisper) runMessageLoop(p *Peer, rw p2p.MsgReadWriter) error {
 
 			trouble := false
 			for _, env := range envelopes {
-				cached, err := whisper.add(env, whisper.lightClient)
+				cached, err := whisper.add(env, whisper.LightClientMode())
 				if err != nil {
 					trouble = true
 					log.Error("bad envelope received, peer will be disconnected", "peer", p.peer.ID(), "err", err)
@@ -796,9 +822,9 @@ func (whisper *Whisper) add(envelope *Envelope, isP2P bool) (bool, error) {
 	if !alreadyCached {
 		whisper.envelopes[hash] = envelope
 		if whisper.expirations[envelope.Expiry] == nil {
-			whisper.expirations[envelope.Expiry] = set.NewNonTS()
+			whisper.expirations[envelope.Expiry] = mapset.NewThreadUnsafeSet()
 		}
-		if !whisper.expirations[envelope.Expiry].Has(hash) {
+		if !whisper.expirations[envelope.Expiry].Contains(hash) {
 			whisper.expirations[envelope.Expiry].Add(hash)
 		}
 	}
@@ -900,7 +926,7 @@ func (whisper *Whisper) expire() {
 				whisper.stats.messagesCleared++
 				whisper.stats.memoryCleared += sz
 				whisper.stats.memoryUsed -= sz
-				return true
+				return false
 			})
 			whisper.expirations[expiry].Clear()
 			delete(whisper.expirations, expiry)

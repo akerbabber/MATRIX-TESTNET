@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of go-ethereum.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// go-ethereum is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// go-ethereum is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU General Public License
+// along with go-ethereum. If not, see <http://www.gnu.org/licenses/>.
 
 package main
 
@@ -25,25 +25,25 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/matrix/go-matrix/log"
+	"github.com/ethereum/go-ethereum/log"
 )
 
-// manstatsDockerfile is the Dockerfile required to build an manstats backend
+// ethstatsDockerfile is the Dockerfile required to build an ethstats backend
 // and associated monitoring site.
-var manstatsDockerfile = `
-FROM puppeth/manstats:latest
+var ethstatsDockerfile = `
+FROM puppeth/ethstats:latest
 
 RUN echo 'module.exports = {trusted: [{{.Trusted}}], banned: [{{.Banned}}], reserved: ["yournode"]};' > lib/utils/config.js
 `
 
-// manstatsComposefile is the docker-compose.yml file required to deploy and
-// maintain an manstats monitoring site.
-var manstatsComposefile = `
+// ethstatsComposefile is the docker-compose.yml file required to deploy and
+// maintain an ethstats monitoring site.
+var ethstatsComposefile = `
 version: '2'
 services:
-  manstats:
+  ethstats:
     build: .
-    image: {{.Network}}/manstats{{if not .VHost}}
+    image: {{.Network}}/ethstats{{if not .VHost}}
     ports:
       - "{{.Port}}:3000"{{end}}
     environment:
@@ -58,7 +58,7 @@ services:
     restart: always
 `
 
-// deployEthstats deploys a new manstats container to a remote machine via SSH,
+// deployEthstats deploys a new ethstats container to a remote machine via SSH,
 // docker and docker-compose. If an instance with the specified network name
 // already exists there, it will be overwritten!
 func deployEthstats(client *sshClient, network string, port int, secret string, vhost string, trusted []string, banned []string, nocache bool) ([]byte, error) {
@@ -76,14 +76,14 @@ func deployEthstats(client *sshClient, network string, port int, secret string, 
 	}
 
 	dockerfile := new(bytes.Buffer)
-	template.Must(template.New("").Parse(manstatsDockerfile)).Execute(dockerfile, map[string]interface{}{
+	template.Must(template.New("").Parse(ethstatsDockerfile)).Execute(dockerfile, map[string]interface{}{
 		"Trusted": strings.Join(trustedLabels, ", "),
 		"Banned":  strings.Join(bannedLabels, ", "),
 	})
 	files[filepath.Join(workdir, "Dockerfile")] = dockerfile.Bytes()
 
 	composefile := new(bytes.Buffer)
-	template.Must(template.New("").Parse(manstatsComposefile)).Execute(composefile, map[string]interface{}{
+	template.Must(template.New("").Parse(ethstatsComposefile)).Execute(composefile, map[string]interface{}{
 		"Network": network,
 		"Port":    port,
 		"Secret":  secret,
@@ -98,16 +98,16 @@ func deployEthstats(client *sshClient, network string, port int, secret string, 
 	}
 	defer client.Run("rm -rf " + workdir)
 
-	// Build and deploy the manstats service
+	// Build and deploy the ethstats service
 	if nocache {
-		return nil, client.Stream(fmt.Sprintf("cd %s && docker-compose -p %s build --pull --no-cache && docker-compose -p %s up -d --force-recreate", workdir, network, network))
+		return nil, client.Stream(fmt.Sprintf("cd %s && docker-compose -p %s build --pull --no-cache && docker-compose -p %s up -d --force-recreate --timeout 60", workdir, network, network))
 	}
-	return nil, client.Stream(fmt.Sprintf("cd %s && docker-compose -p %s up -d --build --force-recreate", workdir, network))
+	return nil, client.Stream(fmt.Sprintf("cd %s && docker-compose -p %s up -d --build --force-recreate --timeout 60", workdir, network))
 }
 
-// manstatsInfos is returned from an manstats status check to allow reporting
+// ethstatsInfos is returned from an ethstats status check to allow reporting
 // various configuration parameters.
-type manstatsInfos struct {
+type ethstatsInfos struct {
 	host   string
 	port   int
 	secret string
@@ -117,19 +117,19 @@ type manstatsInfos struct {
 
 // Report converts the typed struct into a plain string->string map, containing
 // most - but not all - fields for reporting to the user.
-func (info *manstatsInfos) Report() map[string]string {
+func (info *ethstatsInfos) Report() map[string]string {
 	return map[string]string{
 		"Website address":       info.host,
 		"Website listener port": strconv.Itoa(info.port),
 		"Login secret":          info.secret,
-		"Banned addresses":      fmt.Sprintf("%v", info.banned),
+		"Banned addresses":      strings.Join(info.banned, "\n"),
 	}
 }
 
-// checkEthstats does a health-check against an manstats server to verify whether
+// checkEthstats does a health-check against an ethstats server to verify whether
 // it's running, and if yes, gathering a collection of useful infos about it.
-func checkEthstats(client *sshClient, network string) (*manstatsInfos, error) {
-	// Inspect a possible manstats container on the host
+func checkEthstats(client *sshClient, network string) (*ethstatsInfos, error) {
+	// Inspect a possible ethstats container on the host
 	infos, err := inspectContainer(client, fmt.Sprintf("%s_ethstats_1", network))
 	if err != nil {
 		return nil, err
@@ -165,7 +165,7 @@ func checkEthstats(client *sshClient, network string) (*manstatsInfos, error) {
 		log.Warn("Ethstats service seems unreachable", "server", host, "port", port, "err", err)
 	}
 	// Container available, assemble and return the useful infos
-	return &manstatsInfos{
+	return &ethstatsInfos{
 		host:   host,
 		port:   port,
 		secret: secret,

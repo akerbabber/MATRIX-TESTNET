@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2015 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package bind
 
@@ -22,12 +22,12 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/matrix/go-matrix"
-	"github.com/matrix/go-matrix/accounts/abi"
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/core/types"
-	"github.com/matrix/go-matrix/crypto"
-	"github.com/matrix/go-matrix/event"
+	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/event"
 )
 
 // SignerFn is a signer function callback when a contract requires a method to
@@ -43,9 +43,9 @@ type CallOpts struct {
 }
 
 // TransactOpts is the collection of authorization data required to create a
-// valid Matrix transaction.
+// valid Ethereum transaction.
 type TransactOpts struct {
-	From   common.Address // Matrix account to send the transaction from
+	From   common.Address // Ethereum account to send the transaction from
 	Nonce  *big.Int       // Nonce to use for the transaction execution (nil = use pending state)
 	Signer SignerFn       // Method to use for signing the transaction (mandatory)
 
@@ -73,11 +73,11 @@ type WatchOpts struct {
 }
 
 // BoundContract is the base wrapper object that reflects a contract on the
-// Matrix network. It contains a collection of methods that are used by the
+// Ethereum network. It contains a collection of methods that are used by the
 // higher level contract bindings to operate.
 type BoundContract struct {
-	address    common.Address     // Deployment address of the contract on the Matrix blockchain
-	abi        abi.ABI            // Reflect based ABI to access the correct Matrix methods
+	address    common.Address     // Deployment address of the contract on the Ethereum blockchain
+	abi        abi.ABI            // Reflect based ABI to access the correct Ethereum methods
 	caller     ContractCaller     // Read interface to interact with the blockchain
 	transactor ContractTransactor // Write interface to interact with the blockchain
 	filterer   ContractFilterer   // Event filtering to interact with the blockchain
@@ -95,7 +95,7 @@ func NewBoundContract(address common.Address, abi abi.ABI, caller ContractCaller
 	}
 }
 
-// DeployContract deploys a contract onto the Matrix blockchain and binds the
+// DeployContract deploys a contract onto the Ethereum blockchain and binds the
 // deployment address with a Go wrapper.
 func DeployContract(opts *TransactOpts, abi abi.ABI, bytecode []byte, backend ContractBackend, params ...interface{}) (common.Address, *types.Transaction, *BoundContract, error) {
 	// Otherwise try to deploy the contract
@@ -128,7 +128,7 @@ func (c *BoundContract) Call(opts *CallOpts, result interface{}, method string, 
 		return err
 	}
 	var (
-		msg    = matrix.CallMsg{From: opts.From, To: &c.address, Data: input}
+		msg    = ethereum.CallMsg{From: opts.From, To: &c.address, Data: input}
 		ctx    = ensureContext(opts.Context)
 		code   []byte
 		output []byte
@@ -218,7 +218,7 @@ func (c *BoundContract) transact(opts *TransactOpts, contract *common.Address, i
 			}
 		}
 		// If the contract surely has code (or code is not needed), estimate the transaction
-		msg := matrix.CallMsg{From: opts.From, To: contract, Value: value, Data: input}
+		msg := ethereum.CallMsg{From: opts.From, To: contract, Value: value, Data: input}
 		gasLimit, err = c.transactor.EstimateGas(ensureContext(opts.Context), msg)
 		if err != nil {
 			return nil, fmt.Errorf("failed to estimate gas needed: %v", err)
@@ -261,7 +261,7 @@ func (c *BoundContract) FilterLogs(opts *FilterOpts, name string, query ...[]int
 	// Start the background filtering
 	logs := make(chan types.Log, 128)
 
-	config := matrix.FilterQuery{
+	config := ethereum.FilterQuery{
 		Addresses: []common.Address{c.address},
 		Topics:    topics,
 		FromBlock: new(big.Int).SetUint64(opts.Start),
@@ -310,7 +310,7 @@ func (c *BoundContract) WatchLogs(opts *WatchOpts, name string, query ...[]inter
 	// Start the background filtering
 	logs := make(chan types.Log, 128)
 
-	config := matrix.FilterQuery{
+	config := ethereum.FilterQuery{
 		Addresses: []common.Address{c.address},
 		Topics:    topics,
 	}

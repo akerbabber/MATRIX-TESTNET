@@ -1,33 +1,38 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2014 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 // Package common contains various helper functions.
 package common
 
 import "encoding/hex"
 
+// ToHex returns the hex representation of b, prefixed with '0x'.
+// For empty slices, the return value is "0x0".
+//
+// Deprecated: use hexutil.Encode instead.
 func ToHex(b []byte) string {
 	hex := Bytes2Hex(b)
-	// Prefer output of "0x0" instead of "0x"
 	if len(hex) == 0 {
 		hex = "0"
 	}
 	return "0x" + hex
 }
 
+// FromHex returns the bytes represented by the hexadecimal string s.
+// s may be prefixed with "0x".
 func FromHex(s string) []byte {
 	if len(s) > 1 {
 		if s[0:2] == "0x" || s[0:2] == "0X" {
@@ -40,9 +45,7 @@ func FromHex(s string) []byte {
 	return Hex2Bytes(s)
 }
 
-// Copy bytes
-//
-// Returns an exact copy of the provided bytes
+// CopyBytes returns an exact copy of the provided bytes.
 func CopyBytes(b []byte) (copiedBytes []byte) {
 	if b == nil {
 		return nil
@@ -53,14 +56,17 @@ func CopyBytes(b []byte) (copiedBytes []byte) {
 	return
 }
 
+// hasHexPrefix validates str begins with '0x' or '0X'.
 func hasHexPrefix(str string) bool {
 	return len(str) >= 2 && str[0] == '0' && (str[1] == 'x' || str[1] == 'X')
 }
 
+// isHexCharacter returns bool of c being a valid hexadecimal.
 func isHexCharacter(c byte) bool {
 	return ('0' <= c && c <= '9') || ('a' <= c && c <= 'f') || ('A' <= c && c <= 'F')
 }
 
+// isHex validates whether each byte is valid hexadecimal string.
 func isHex(str string) bool {
 	if len(str)%2 != 0 {
 		return false
@@ -73,16 +79,18 @@ func isHex(str string) bool {
 	return true
 }
 
+// Bytes2Hex returns the hexadecimal encoding of d.
 func Bytes2Hex(d []byte) string {
 	return hex.EncodeToString(d)
 }
 
+// Hex2Bytes returns the bytes represented by the hexadecimal string str.
 func Hex2Bytes(str string) []byte {
 	h, _ := hex.DecodeString(str)
-
 	return h
 }
 
+// Hex2BytesFixed returns bytes of a specified fixed length flen.
 func Hex2BytesFixed(str string, flen int) []byte {
 	h, _ := hex.DecodeString(str)
 	if len(h) == flen {
@@ -92,10 +100,11 @@ func Hex2BytesFixed(str string, flen int) []byte {
 		return h[len(h)-flen:]
 	}
 	hh := make([]byte, flen)
-	copy(hh[flen-len(h):flen], h[:])
+	copy(hh[flen-len(h):flen], h)
 	return hh
 }
 
+// RightPadBytes zero-pads slice to the right up to length l.
 func RightPadBytes(slice []byte, l int) []byte {
 	if l <= len(slice) {
 		return slice
@@ -107,6 +116,7 @@ func RightPadBytes(slice []byte, l int) []byte {
 	return padded
 }
 
+// LeftPadBytes zero-pads slice to the left up to length l.
 func LeftPadBytes(slice []byte, l int) []byte {
 	if l <= len(slice) {
 		return slice

@@ -1,25 +1,25 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of go-ethereum.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// go-ethereum is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// go-ethereum is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU General Public License
+// along with go-ethereum. If not, see <http://www.gnu.org/licenses/>.
 
 package main
 
 import (
 	"fmt"
 
-	"github.com/matrix/go-matrix/log"
+	"github.com/ethereum/go-ethereum/log"
 )
 
 // deployDashboard queries the user for various input on deploying a web-service
@@ -60,7 +60,7 @@ func (w *wizard) deployDashboard() {
 			available[service] = append(available[service], server)
 		}
 	}
-	for _, service := range []string{"manstats", "explorer", "wallet", "faucet"} {
+	for _, service := range []string{"ethstats", "explorer", "wallet", "faucet"} {
 		// Gather all the locally hosted pages of this type
 		var pages []string
 		for _, server := range available[service] {
@@ -71,7 +71,7 @@ func (w *wizard) deployDashboard() {
 			// If there's a service running on the machine, retrieve it's port number
 			var port int
 			switch service {
-			case "manstats":
+			case "ethstats":
 				if infos, err := checkEthstats(client, w.network); err == nil {
 					port = infos.port
 				}
@@ -92,7 +92,7 @@ func (w *wizard) deployDashboard() {
 				pages = append(pages, page)
 			}
 		}
-		// Promt the user to chose one, enter manually or simply not list this service
+		// Prompt the user to chose one, enter manually or simply not list this service
 		defLabel, defChoice := "don't list", len(pages)+2
 		if len(pages) > 0 {
 			defLabel, defChoice = pages[0], 1
@@ -123,8 +123,8 @@ func (w *wizard) deployDashboard() {
 		}
 		// Save the users choice
 		switch service {
-		case "manstats":
-			infos.manstats = page
+		case "ethstats":
+			infos.ethstats = page
 		case "explorer":
 			infos.explorer = page
 		case "wallet":
@@ -133,10 +133,10 @@ func (w *wizard) deployDashboard() {
 			infos.faucet = page
 		}
 	}
-	// If we have manstats running, ask whether to make the secret public or not
-	if w.conf.manstats != "" {
+	// If we have ethstats running, ask whether to make the secret public or not
+	if w.conf.ethstats != "" {
 		fmt.Println()
-		fmt.Println("Include manstats secret on dashboard (y/n)? (default = yes)")
+		fmt.Println("Include ethstats secret on dashboard (y/n)? (default = yes)")
 		infos.trusted = w.readDefaultString("y") == "y"
 	}
 	// Try to deploy the dashboard container on the host

@@ -1,46 +1,46 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 // Contains all the wrappers from the node package to support client side node
 // management on mobile platforms.
 
-package gman
+package geth
 
 import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
 
-	"github.com/matrix/go-matrix/core"
-	"github.com/matrix/go-matrix/man"
-	"github.com/matrix/go-matrix/man/downloader"
-	"github.com/matrix/go-matrix/manclient"
-	"github.com/matrix/go-matrix/manstats"
-	"github.com/matrix/go-matrix/internal/debug"
-	"github.com/matrix/go-matrix/les"
-	"github.com/matrix/go-matrix/node"
-	"github.com/matrix/go-matrix/p2p"
-	"github.com/matrix/go-matrix/p2p/nat"
-	"github.com/matrix/go-matrix/params"
-	whisper "github.com/matrix/go-matrix/whisper/whisperv6"
+	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/eth"
+	"github.com/ethereum/go-ethereum/eth/downloader"
+	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/ethstats"
+	"github.com/ethereum/go-ethereum/internal/debug"
+	"github.com/ethereum/go-ethereum/les"
+	"github.com/ethereum/go-ethereum/node"
+	"github.com/ethereum/go-ethereum/p2p"
+	"github.com/ethereum/go-ethereum/p2p/nat"
+	"github.com/ethereum/go-ethereum/params"
+	whisper "github.com/ethereum/go-ethereum/whisper/whisperv6"
 )
 
 // NodeConfig represents the collection of configuration values to fine tune the Geth
 // node embedded into a mobile process. The available values are a subset of the
-// entire API provided by go-matrix to reduce the maintenance surface and dev
+// entire API provided by go-ethereum to reduce the maintenance surface and dev
 // complexity.
 type NodeConfig struct {
 	// Bootstrap nodes used to establish connectivity with the rest of the network.
@@ -50,26 +50,26 @@ type NodeConfig struct {
 	// set to zero, then only the configured static and trusted peers can connect.
 	MaxPeers int
 
-	// MatrixEnabled specifies whether the node should run the Matrix protocol.
-	MatrixEnabled bool
+	// EthereumEnabled specifies whether the node should run the Ethereum protocol.
+	EthereumEnabled bool
 
-	// MatrixNetworkID is the network identifier used by the Matrix protocol to
+	// EthereumNetworkID is the network identifier used by the Ethereum protocol to
 	// decide if remote peers should be accepted or not.
-	MatrixNetworkID int64 // uint64 in truth, but Java can't handle that...
+	EthereumNetworkID int64 // uint64 in truth, but Java can't handle that...
 
-	// MatrixGenesis is the genesis JSON to use to seed the blockchain with. An
+	// EthereumGenesis is the genesis JSON to use to seed the blockchain with. An
 	// empty genesis state is equivalent to using the mainnet's state.
-	MatrixGenesis string
+	EthereumGenesis string
 
-	// MatrixDatabaseCache is the system memory in MB to allocate for database caching.
+	// EthereumDatabaseCache is the system memory in MB to allocate for database caching.
 	// A minimum of 16MB is always reserved.
-	MatrixDatabaseCache int
+	EthereumDatabaseCache int
 
-	// MatrixNetStats is a netstats connection string to use to report various
+	// EthereumNetStats is a netstats connection string to use to report various
 	// chain, transaction and node stats to a monitoring server.
 	//
 	// It has the form "nodename:secret@host:port"
-	MatrixNetStats string
+	EthereumNetStats string
 
 	// WhisperEnabled specifies whether the node should run the Whisper protocol.
 	WhisperEnabled bool
@@ -83,9 +83,9 @@ type NodeConfig struct {
 var defaultNodeConfig = &NodeConfig{
 	BootstrapNodes:        FoundationBootnodes(),
 	MaxPeers:              25,
-	MatrixEnabled:       true,
-	MatrixNetworkID:     1,
-	MatrixDatabaseCache: 16,
+	EthereumEnabled:       true,
+	EthereumNetworkID:     1,
+	EthereumDatabaseCache: 16,
 }
 
 // NewNodeConfig creates a new node option set, initialized to the default values.
@@ -94,7 +94,7 @@ func NewNodeConfig() *NodeConfig {
 	return &config
 }
 
-// Node represents a Geth Matrix node instance.
+// Node represents a Geth Ethereum node instance.
 type Node struct {
 	node *node.Node
 }
@@ -119,7 +119,7 @@ func NewNode(datadir string, config *NodeConfig) (stack *Node, _ error) {
 	// Create the empty networking stack
 	nodeConf := &node.Config{
 		Name:        clientIdentifier,
-		Version:     params.Version,
+		Version:     params.VersionWithMeta,
 		DataDir:     datadir,
 		KeyStoreDir: filepath.Join(datadir, "keystore"), // Mobile should never use internal keystores!
 		P2P: p2p.Config{
@@ -139,39 +139,39 @@ func NewNode(datadir string, config *NodeConfig) (stack *Node, _ error) {
 	debug.Memsize.Add("node", rawStack)
 
 	var genesis *core.Genesis
-	if config.MatrixGenesis != "" {
+	if config.EthereumGenesis != "" {
 		// Parse the user supplied genesis spec if not mainnet
 		genesis = new(core.Genesis)
-		if err := json.Unmarshal([]byte(config.MatrixGenesis), genesis); err != nil {
+		if err := json.Unmarshal([]byte(config.EthereumGenesis), genesis); err != nil {
 			return nil, fmt.Errorf("invalid genesis spec: %v", err)
 		}
 		// If we have the testnet, hard code the chain configs too
-		if config.MatrixGenesis == TestnetGenesis() {
+		if config.EthereumGenesis == TestnetGenesis() {
 			genesis.Config = params.TestnetChainConfig
-			if config.MatrixNetworkID == 1 {
-				config.MatrixNetworkID = 3
+			if config.EthereumNetworkID == 1 {
+				config.EthereumNetworkID = 3
 			}
 		}
 	}
-	// Register the Matrix protocol if requested
-	if config.MatrixEnabled {
-		manConf := man.DefaultConfig
-		manConf.Genesis = genesis
-		manConf.SyncMode = downloader.LightSync
-		manConf.NetworkId = uint64(config.MatrixNetworkID)
-		manConf.DatabaseCache = config.MatrixDatabaseCache
+	// Register the Ethereum protocol if requested
+	if config.EthereumEnabled {
+		ethConf := eth.DefaultConfig
+		ethConf.Genesis = genesis
+		ethConf.SyncMode = downloader.LightSync
+		ethConf.NetworkId = uint64(config.EthereumNetworkID)
+		ethConf.DatabaseCache = config.EthereumDatabaseCache
 		if err := rawStack.Register(func(ctx *node.ServiceContext) (node.Service, error) {
-			return les.New(ctx, &manConf)
+			return les.New(ctx, &ethConf)
 		}); err != nil {
-			return nil, fmt.Errorf("matrix init: %v", err)
+			return nil, fmt.Errorf("ethereum init: %v", err)
 		}
 		// If netstats reporting is requested, do it
-		if config.MatrixNetStats != "" {
+		if config.EthereumNetStats != "" {
 			if err := rawStack.Register(func(ctx *node.ServiceContext) (node.Service, error) {
-				var lesServ *les.LightMatrix
+				var lesServ *les.LightEthereum
 				ctx.Service(&lesServ)
 
-				return manstats.New(config.MatrixNetStats, nil, lesServ)
+				return ethstats.New(config.EthereumNetStats, nil, lesServ)
 			}); err != nil {
 				return nil, fmt.Errorf("netstats init: %v", err)
 			}
@@ -193,19 +193,19 @@ func (n *Node) Start() error {
 	return n.node.Start()
 }
 
-// Stop terminates a running node along with all it's services. In the node was
+// Stop terminates a running node along with all it's services. If the node was
 // not started, an error is returned.
 func (n *Node) Stop() error {
 	return n.node.Stop()
 }
 
-// GetMatrixClient retrieves a client to access the Matrix subsystem.
-func (n *Node) GetMatrixClient() (client *MatrixClient, _ error) {
+// GetEthereumClient retrieves a client to access the Ethereum subsystem.
+func (n *Node) GetEthereumClient() (client *EthereumClient, _ error) {
 	rpc, err := n.node.Attach()
 	if err != nil {
 		return nil, err
 	}
-	return &MatrixClient{manclient.NewClient(rpc)}, nil
+	return &EthereumClient{ethclient.NewClient(rpc)}, nil
 }
 
 // GetNodeInfo gathers and returns a collection of metadata known about the host.

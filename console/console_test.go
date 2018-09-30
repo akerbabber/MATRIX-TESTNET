@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2015 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package console
 
@@ -26,12 +26,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/consensus/manash"
-	"github.com/matrix/go-matrix/core"
-	"github.com/matrix/go-matrix/man"
-	"github.com/matrix/go-matrix/internal/jsre"
-	"github.com/matrix/go-matrix/node"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/consensus/ethash"
+	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/eth"
+	"github.com/ethereum/go-ethereum/internal/jsre"
+	"github.com/ethereum/go-ethereum/node"
 )
 
 const (
@@ -75,7 +75,7 @@ func (p *hookedPrompter) SetWordCompleter(completer WordCompleter) {}
 type tester struct {
 	workspace string
 	stack     *node.Node
-	matrix  *man.Matrix
+	ethereum  *eth.Ethereum
 	console   *Console
 	input     *hookedPrompter
 	output    *bytes.Buffer
@@ -83,30 +83,30 @@ type tester struct {
 
 // newTester creates a test environment based on which the console can operate.
 // Please ensure you call Close() on the returned tester to avoid leaks.
-func newTester(t *testing.T, confOverride func(*man.Config)) *tester {
+func newTester(t *testing.T, confOverride func(*eth.Config)) *tester {
 	// Create a temporary storage for the node keys and initialize it
 	workspace, err := ioutil.TempDir("", "console-tester-")
 	if err != nil {
 		t.Fatalf("failed to create temporary keystore: %v", err)
 	}
 
-	// Create a networkless protocol stack and start an Matrix service within
+	// Create a networkless protocol stack and start an Ethereum service within
 	stack, err := node.New(&node.Config{DataDir: workspace, UseLightweightKDF: true, Name: testInstance})
 	if err != nil {
 		t.Fatalf("failed to create node: %v", err)
 	}
-	manConf := &man.Config{
+	ethConf := &eth.Config{
 		Genesis:   core.DeveloperGenesisBlock(15, common.Address{}),
 		Etherbase: common.HexToAddress(testAddress),
-		Ethash: manash.Config{
-			PowMode: manash.ModeTest,
+		Ethash: ethash.Config{
+			PowMode: ethash.ModeTest,
 		},
 	}
 	if confOverride != nil {
-		confOverride(manConf)
+		confOverride(ethConf)
 	}
-	if err = stack.Register(func(ctx *node.ServiceContext) (node.Service, error) { return man.New(ctx, manConf) }); err != nil {
-		t.Fatalf("failed to register Matrix protocol: %v", err)
+	if err = stack.Register(func(ctx *node.ServiceContext) (node.Service, error) { return eth.New(ctx, ethConf) }); err != nil {
+		t.Fatalf("failed to register Ethereum protocol: %v", err)
 	}
 	// Start the node and assemble the JavaScript console around it
 	if err = stack.Start(); err != nil {
@@ -131,13 +131,13 @@ func newTester(t *testing.T, confOverride func(*man.Config)) *tester {
 		t.Fatalf("failed to create JavaScript console: %v", err)
 	}
 	// Create the final tester and return
-	var matrix *man.Matrix
-	stack.Service(&matrix)
+	var ethereum *eth.Ethereum
+	stack.Service(&ethereum)
 
 	return &tester{
 		workspace: workspace,
 		stack:     stack,
-		matrix:  matrix,
+		ethereum:  ethereum,
 		console:   console,
 		input:     prompter,
 		output:    printer,
@@ -201,7 +201,7 @@ func TestInteractive(t *testing.T) {
 
 	go tester.console.Interactive()
 
-	// Wait for a promt and send a statement back
+	// Wait for a prompt and send a statement back
 	select {
 	case <-tester.input.scheduler:
 	case <-time.After(time.Second):
@@ -212,7 +212,7 @@ func TestInteractive(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatalf("input feedback timeout")
 	}
-	// Wait for the second promt and ensure first statement was evaluated
+	// Wait for the second prompt and ensure first statement was evaluated
 	select {
 	case <-tester.input.scheduler:
 	case <-time.After(time.Second):
@@ -249,7 +249,7 @@ func TestExecute(t *testing.T) {
 }
 
 // Tests that the JavaScript objects returned by statement executions are properly
-// pretty printed instead of just displaing "[object]".
+// pretty printed instead of just displaying "[object]".
 func TestPrettyPrint(t *testing.T) {
 	tester := newTester(t, nil)
 	defer tester.Close(t)
@@ -300,7 +300,7 @@ func TestIndenting(t *testing.T) {
 	}{
 		{`var a = 1;`, 0},
 		{`"some string"`, 0},
-		{`"some string with (parentesis`, 0},
+		{`"some string with (parenthesis`, 0},
 		{`"some string with newline
 		("`, 0},
 		{`function v(a,b) {}`, 0},

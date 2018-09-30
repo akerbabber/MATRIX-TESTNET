@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package light
 
@@ -22,16 +22,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/core"
-	"github.com/matrix/go-matrix/core/rawdb"
-	"github.com/matrix/go-matrix/core/state"
-	"github.com/matrix/go-matrix/core/types"
-	"github.com/matrix/go-matrix/mandb"
-	"github.com/matrix/go-matrix/event"
-	"github.com/matrix/go-matrix/log"
-	"github.com/matrix/go-matrix/params"
-	"github.com/matrix/go-matrix/rlp"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/rawdb"
+	"github.com/ethereum/go-ethereum/core/state"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/event"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/params"
+	"github.com/ethereum/go-ethereum/rlp"
 )
 
 const (
@@ -59,7 +59,7 @@ type TxPool struct {
 	mu           sync.RWMutex
 	chain        *LightChain
 	odr          OdrBackend
-	chainDb      mandb.Database
+	chainDb      ethdb.Database
 	relay        TxRelayBackend
 	head         common.Hash
 	nonce        map[common.Address]uint64            // "pending" nonce
@@ -89,7 +89,7 @@ type TxRelayBackend interface {
 func NewTxPool(config *params.ChainConfig, chain *LightChain, relay TxRelayBackend) *TxPool {
 	pool := &TxPool{
 		config:      config,
-		signer:      types.NewEIP155Signer(config.ChainId),
+		signer:      types.NewEIP155Signer(config.ChainID),
 		nonce:       make(map[common.Address]uint64),
 		pending:     make(map[common.Hash]*types.Transaction),
 		mined:       make(map[common.Hash][]*types.Transaction),
@@ -199,15 +199,17 @@ func (pool *TxPool) checkMinedTxs(ctx context.Context, hash common.Hash, number 
 // rollbackTxs marks the transactions contained in recently rolled back blocks
 // as rolled back. It also removes any positional lookup entries.
 func (pool *TxPool) rollbackTxs(hash common.Hash, txc txStateChanges) {
+	batch := pool.chainDb.NewBatch()
 	if list, ok := pool.mined[hash]; ok {
 		for _, tx := range list {
 			txHash := tx.Hash()
-			rawdb.DeleteTxLookupEntry(pool.chainDb, txHash)
+			rawdb.DeleteTxLookupEntry(batch, txHash)
 			pool.pending[txHash] = tx
 			txc.setState(txHash, false)
 		}
 		delete(pool.mined, hash)
 	}
+	batch.Write()
 }
 
 // reorgOnNewHead sets a new head header, processing (and rolling back if necessary)
@@ -504,14 +506,16 @@ func (self *TxPool) Content() (map[common.Address]types.Transactions, map[common
 func (self *TxPool) RemoveTransactions(txs types.Transactions) {
 	self.mu.Lock()
 	defer self.mu.Unlock()
+
 	var hashes []common.Hash
+	batch := self.chainDb.NewBatch()
 	for _, tx := range txs {
-		//self.RemoveTx(tx.Hash())
 		hash := tx.Hash()
 		delete(self.pending, hash)
-		self.chainDb.Delete(hash[:])
+		batch.Delete(hash.Bytes())
 		hashes = append(hashes, hash)
 	}
+	batch.Write()
 	self.relay.Discard(hashes)
 }
 

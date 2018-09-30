@@ -1,20 +1,20 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
-// Package les implements the Light Matrix Subprotocol.
+// Package les implements the Light Ethereum Subprotocol.
 package les
 
 import (
@@ -23,64 +23,68 @@ import (
 	"math"
 	"sync"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/core"
-	"github.com/matrix/go-matrix/core/rawdb"
-	"github.com/matrix/go-matrix/core/types"
-	"github.com/matrix/go-matrix/man"
-	"github.com/matrix/go-matrix/mandb"
-	"github.com/matrix/go-matrix/les/flowcontrol"
-	"github.com/matrix/go-matrix/light"
-	"github.com/matrix/go-matrix/log"
-	"github.com/matrix/go-matrix/p2p"
-	"github.com/matrix/go-matrix/p2p/discv5"
-	"github.com/matrix/go-matrix/rlp"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/rawdb"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/eth"
+	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/les/flowcontrol"
+	"github.com/ethereum/go-ethereum/light"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/p2p"
+	"github.com/ethereum/go-ethereum/p2p/discv5"
+	"github.com/ethereum/go-ethereum/params"
+	"github.com/ethereum/go-ethereum/rlp"
 )
 
 type LesServer struct {
-	config          *man.Config
-	protocolManager *ProtocolManager
-	fcManager       *flowcontrol.ClientManager // nil if our node is client only
-	fcCostStats     *requestCostStats
-	defParams       *flowcontrol.ServerParams
-	lesTopics       []discv5.Topic
-	privateKey      *ecdsa.PrivateKey
-	quitSync        chan struct{}
+	lesCommons
 
-	chtIndexer, bloomTrieIndexer *core.ChainIndexer
+	fcManager   *flowcontrol.ClientManager // nil if our node is client only
+	fcCostStats *requestCostStats
+	defParams   *flowcontrol.ServerParams
+	lesTopics   []discv5.Topic
+	privateKey  *ecdsa.PrivateKey
+	quitSync    chan struct{}
 }
 
-func NewLesServer(man *man.Matrix, config *man.Config) (*LesServer, error) {
+func NewLesServer(eth *eth.Ethereum, config *eth.Config) (*LesServer, error) {
 	quitSync := make(chan struct{})
-	pm, err := NewProtocolManager(man.BlockChain().Config(), false, ServerProtocolVersions, config.NetworkId, man.EventMux(), man.Engine(), newPeerSet(), man.BlockChain(), man.TxPool(), man.ChainDb(), nil, nil, quitSync, new(sync.WaitGroup))
+	pm, err := NewProtocolManager(eth.BlockChain().Config(), light.DefaultServerIndexerConfig, false, config.NetworkId, eth.EventMux(), eth.Engine(), newPeerSet(), eth.BlockChain(), eth.TxPool(), eth.ChainDb(), nil, nil, nil, quitSync, new(sync.WaitGroup))
 	if err != nil {
 		return nil, err
 	}
 
 	lesTopics := make([]discv5.Topic, len(AdvertiseProtocolVersions))
 	for i, pv := range AdvertiseProtocolVersions {
-		lesTopics[i] = lesTopic(man.BlockChain().Genesis().Hash(), pv)
+		lesTopics[i] = lesTopic(eth.BlockChain().Genesis().Hash(), pv)
 	}
 
 	srv := &LesServer{
-		config:           config,
-		protocolManager:  pm,
-		quitSync:         quitSync,
-		lesTopics:        lesTopics,
-		chtIndexer:       light.NewChtIndexer(man.ChainDb(), false),
-		bloomTrieIndexer: light.NewBloomTrieIndexer(man.ChainDb(), false),
+		lesCommons: lesCommons{
+			config:           config,
+			chainDb:          eth.ChainDb(),
+			iConfig:          light.DefaultServerIndexerConfig,
+			chtIndexer:       light.NewChtIndexer(eth.ChainDb(), nil, params.CHTFrequencyServer, params.HelperTrieProcessConfirmations),
+			bloomTrieIndexer: light.NewBloomTrieIndexer(eth.ChainDb(), nil, params.BloomBitsBlocks, params.BloomTrieFrequency),
+			protocolManager:  pm,
+		},
+		quitSync:  quitSync,
+		lesTopics: lesTopics,
 	}
+
 	logger := log.New()
 
 	chtV1SectionCount, _, _ := srv.chtIndexer.Sections() // indexer still uses LES/1 4k section size for backwards server compatibility
-	chtV2SectionCount := chtV1SectionCount / (light.CHTFrequencyClient / light.CHTFrequencyServer)
+	chtV2SectionCount := chtV1SectionCount / (params.CHTFrequencyClient / params.CHTFrequencyServer)
 	if chtV2SectionCount != 0 {
 		// convert to LES/2 section
 		chtLastSection := chtV2SectionCount - 1
 		// convert last LES/2 section index back to LES/1 index for chtIndexer.SectionHead
-		chtLastSectionV1 := (chtLastSection+1)*(light.CHTFrequencyClient/light.CHTFrequencyServer) - 1
+		chtLastSectionV1 := (chtLastSection+1)*(params.CHTFrequencyClient/params.CHTFrequencyServer) - 1
 		chtSectionHead := srv.chtIndexer.SectionHead(chtLastSectionV1)
-		chtRoot := light.GetChtV2Root(pm.chainDb, chtLastSection, chtSectionHead)
+		chtRoot := light.GetChtRoot(pm.chainDb, chtLastSectionV1, chtSectionHead)
 		logger.Info("Loaded CHT", "section", chtLastSection, "head", chtSectionHead, "root", chtRoot)
 	}
 	bloomTrieSectionCount, _, _ := srv.bloomTrieIndexer.Sections()
@@ -91,7 +95,7 @@ func NewLesServer(man *man.Matrix, config *man.Config) (*LesServer, error) {
 		logger.Info("Loaded bloom trie", "section", bloomTrieLastSection, "head", bloomTrieSectionHead, "root", bloomTrieRoot)
 	}
 
-	srv.chtIndexer.Start(man.BlockChain())
+	srv.chtIndexer.Start(eth.BlockChain())
 	pm.server = srv
 
 	srv.defParams = &flowcontrol.ServerParams{
@@ -99,12 +103,12 @@ func NewLesServer(man *man.Matrix, config *man.Config) (*LesServer, error) {
 		MinRecharge: 50000,
 	}
 	srv.fcManager = flowcontrol.NewClientManager(uint64(config.LightServ), 10, 1000000000)
-	srv.fcCostStats = newCostStats(man.ChainDb())
+	srv.fcCostStats = newCostStats(eth.ChainDb())
 	return srv, nil
 }
 
 func (s *LesServer) Protocols() []p2p.Protocol {
-	return s.protocolManager.SubProtocols
+	return s.makeProtocols(ServerProtocolVersions)
 }
 
 // Start starts the LES server
@@ -225,7 +229,7 @@ func linRegFromBytes(data []byte) *linReg {
 
 type requestCostStats struct {
 	lock  sync.RWMutex
-	db    mandb.Database
+	db    ethdb.Database
 	stats map[uint64]*linReg
 }
 
@@ -236,7 +240,7 @@ type requestCostStatsRlp []struct {
 
 var rcStatsKey = []byte("_requestCostStats")
 
-func newCostStats(db mandb.Database) *requestCostStats {
+func newCostStats(db ethdb.Database) *requestCostStats {
 	stats := make(map[uint64]*linReg)
 	for _, code := range reqList {
 		stats[code] = &linReg{cnt: 100}

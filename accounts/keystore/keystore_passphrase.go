@@ -1,25 +1,25 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2014 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 /*
 
 This key store behaves as KeyStorePlain with the difference that
 the private key is encrypted and on disk uses another JSON encoding.
 
-The crypto is documented at https://github.com/matrix/wiki/wiki/Web3-Secret-Storage-Definition
+The crypto is documented at https://github.com/ethereum/wiki/wiki/Web3-Secret-Storage-Definition
 
 */
 
@@ -28,18 +28,19 @@ package keystore
 import (
 	"bytes"
 	"crypto/aes"
-	crand "crypto/rand"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
+	"os"
 	"path/filepath"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/common/math"
-	"github.com/matrix/go-matrix/crypto"
-	"github.com/matrix/go-matrix/crypto/randentropy"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/math"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/pborman/uuid"
 	"golang.org/x/crypto/pbkdf2"
 	"golang.org/x/crypto/scrypt"
@@ -72,6 +73,10 @@ type keyStorePassphrase struct {
 	keysDirPath string
 	scryptN     int
 	scryptP     int
+	// skipKeyFileVerification disables the security-feature which does
+	// reads and decrypts any newly created keyfiles. This should be 'false' in all
+	// cases except tests -- setting this to 'true' is not recommended.
+	skipKeyFileVerification bool
 }
 
 func (ks keyStorePassphrase) GetKey(addr common.Address, filename, auth string) (*Key, error) {
@@ -93,7 +98,7 @@ func (ks keyStorePassphrase) GetKey(addr common.Address, filename, auth string) 
 
 // StoreKey generates a key, encrypts with 'auth' and stores in the given directory
 func StoreKey(dir, auth string, scryptN, scryptP int) (common.Address, error) {
-	_, a, err := storeNewKey(&keyStorePassphrase{dir, scryptN, scryptP}, crand.Reader, auth)
+	_, a, err := storeNewKey(&keyStorePassphrase{dir, scryptN, scryptP, false}, rand.Reader, auth)
 	return a.Address, err
 }
 
@@ -102,7 +107,25 @@ func (ks keyStorePassphrase) StoreKey(filename string, key *Key, auth string) er
 	if err != nil {
 		return err
 	}
-	return writeKeyFile(filename, keyjson)
+	// Write into temporary file
+	tmpName, err := writeTemporaryKeyFile(filename, keyjson)
+	if err != nil {
+		return err
+	}
+	if !ks.skipKeyFileVerification {
+		// Verify that we can decrypt the file with the given password.
+		_, err = ks.GetKey(key.Address, tmpName, auth)
+		if err != nil {
+			msg := "An error was encountered when saving and verifying the keystore file. \n" +
+				"This indicates that the keystore is corrupted. \n" +
+				"The corrupted file is stored at \n%v\n" +
+				"Please file a ticket at:\n\n" +
+				"https://github.com/ethereum/go-ethereum/issues." +
+				"The error was : %s"
+			return fmt.Errorf(msg, tmpName, err)
+		}
+	}
+	return os.Rename(tmpName, filename)
 }
 
 func (ks keyStorePassphrase) JoinPath(filename string) string {
@@ -116,7 +139,11 @@ func (ks keyStorePassphrase) JoinPath(filename string) string {
 // blob that can be decrypted later on.
 func EncryptKey(key *Key, auth string, scryptN, scryptP int) ([]byte, error) {
 	authArray := []byte(auth)
-	salt := randentropy.GetEntropyCSPRNG(32)
+
+	salt := make([]byte, 32)
+	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
+		panic("reading from crypto/rand failed: " + err.Error())
+	}
 	derivedKey, err := scrypt.Key(authArray, salt, scryptN, scryptR, scryptP, scryptDKLen)
 	if err != nil {
 		return nil, err
@@ -124,7 +151,10 @@ func EncryptKey(key *Key, auth string, scryptN, scryptP int) ([]byte, error) {
 	encryptKey := derivedKey[:16]
 	keyBytes := math.PaddedBigBytes(key.PrivateKey.D, 32)
 
-	iv := randentropy.GetEntropyCSPRNG(aes.BlockSize) // 16
+	iv := make([]byte, aes.BlockSize) // 16
+	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+		panic("reading from crypto/rand failed: " + err.Error())
+	}
 	cipherText, err := aesCTRXOR(encryptKey, keyBytes, iv)
 	if err != nil {
 		return nil, err

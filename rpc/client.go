@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package rpc
 
@@ -33,7 +33,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/matrix/go-matrix/log"
+	"github.com/ethereum/go-ethereum/log"
 )
 
 var (
@@ -47,7 +47,7 @@ const (
 	tcpKeepAliveInterval = 30 * time.Second
 	defaultDialTimeout   = 10 * time.Second // used when dialing if the context has no deadline
 	defaultWriteTimeout  = 10 * time.Second // used for calls if the context has no deadline
-	subscribeTimeout     = 5 * time.Second  // overall timeout man_subscribe, rpc_modules calls
+	subscribeTimeout     = 5 * time.Second  // overall timeout eth_subscribe, rpc_modules calls
 )
 
 const (
@@ -61,7 +61,7 @@ const (
 	// The approach taken here is to maintain a per-subscription linked list buffer
 	// shrinks on demand. If the buffer reaches the size below, the subscription is
 	// dropped.
-	maxClientSubscriptionBuffer = 8000
+	maxClientSubscriptionBuffer = 20000
 )
 
 // BatchElem is an element in a batch request.
@@ -304,7 +304,7 @@ func (c *Client) CallContext(ctx context.Context, result interface{}, method str
 		return err
 	}
 
-	// dispatch has accepted the request and will close the channel it when it quits.
+	// dispatch has accepted the request and will close the channel when it quits.
 	switch resp, err := op.wait(ctx); {
 	case err != nil:
 		return err
@@ -390,9 +390,9 @@ func (c *Client) BatchCallContext(ctx context.Context, b []BatchElem) error {
 	return err
 }
 
-// EthSubscribe registers a subscripion under the "man" namespace.
+// EthSubscribe registers a subscripion under the "eth" namespace.
 func (c *Client) EthSubscribe(ctx context.Context, channel interface{}, args ...interface{}) (*ClientSubscription, error) {
-	return c.Subscribe(ctx, "man", channel, args...)
+	return c.Subscribe(ctx, "eth", channel, args...)
 }
 
 // ShhSubscribe registers a subscripion under the "shh" namespace.
@@ -487,6 +487,7 @@ func (c *Client) write(ctx context.Context, msg interface{}) error {
 	}
 	c.writeConn.SetWriteDeadline(deadline)
 	err := json.NewEncoder(c.writeConn).Encode(msg)
+	c.writeConn.SetWriteDeadline(time.Time{})
 	if err != nil {
 		c.writeConn = nil
 	}

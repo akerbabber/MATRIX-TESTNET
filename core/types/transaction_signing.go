@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package types
 
@@ -22,9 +22,9 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/crypto"
-	"github.com/matrix/go-matrix/params"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/params"
 )
 
 var (
@@ -43,7 +43,7 @@ func MakeSigner(config *params.ChainConfig, blockNumber *big.Int) Signer {
 	var signer Signer
 	switch {
 	case config.IsEIP155(blockNumber):
-		signer = NewEIP155Signer(config.ChainId)
+		signer = NewEIP155Signer(config.ChainID)
 	case config.IsHomestead(blockNumber):
 		signer = HomesteadSigner{}
 	default:
@@ -131,14 +131,7 @@ func (s EIP155Signer) Sender(tx *Transaction) (common.Address, error) {
 	if tx.ChainId().Cmp(s.chainId) != 0 {
 		return common.Address{}, ErrInvalidChainId
 	}
-	//YY=====begin======
-	V := new(big.Int).Set(tx.data.V)
-	if V.Cmp(big.NewInt(128)) > 0 {
-		V.Sub(V, big.NewInt(128))
-	}
-	V.Sub(V, s.chainIdMul)
-	//V := new(big.Int).Sub(tx.data.V, s.chainIdMul) 注释原来的方式
-	//=======end========
+	V := new(big.Int).Sub(tx.data.V, s.chainIdMul)
 	V.Sub(V, big8)
 	return recoverPlain(s.Hash(tx), tx.data.R, tx.data.S, V, true)
 }
@@ -160,28 +153,15 @@ func (s EIP155Signer) SignatureValues(tx *Transaction, sig []byte) (R, S, V *big
 // Hash returns the hash to be signed by the sender.
 // It does not uniquely identify the transaction.
 func (s EIP155Signer) Hash(tx *Transaction) common.Hash {
-	if len(tx.data.Extra) > 0 { //YY
-		return rlpHash([]interface{}{
-			tx.data.AccountNonce,
-			tx.data.Price,
-			tx.data.GasLimit,
-			tx.data.Recipient,
-			tx.data.Amount,
-			tx.data.Payload,
-			tx.data.Extra,
-			s.chainId, uint(0), uint(0),
-		})
-	} else {
-		return rlpHash([]interface{}{
-			tx.data.AccountNonce,
-			tx.data.Price,
-			tx.data.GasLimit,
-			tx.data.Recipient,
-			tx.data.Amount,
-			tx.data.Payload,
-			s.chainId, uint(0), uint(0),
-		})
-	}
+	return rlpHash([]interface{}{
+		tx.data.AccountNonce,
+		tx.data.Price,
+		tx.data.GasLimit,
+		tx.data.Recipient,
+		tx.data.Amount,
+		tx.data.Payload,
+		s.chainId, uint(0), uint(0),
+	})
 }
 
 // HomesteadTransaction implements TransactionInterface using the
@@ -247,13 +227,13 @@ func recoverPlain(sighash common.Hash, R, S, Vb *big.Int, homestead bool) (commo
 	if !crypto.ValidateSignatureValues(V, R, S, homestead) {
 		return common.Address{}, ErrInvalidSig
 	}
-	// encode the snature in uncompressed format
+	// encode the signature in uncompressed format
 	r, s := R.Bytes(), S.Bytes()
 	sig := make([]byte, 65)
 	copy(sig[32-len(r):32], r)
 	copy(sig[64-len(s):64], s)
 	sig[64] = V
-	// recover the public key from the snature
+	// recover the public key from the signature
 	pub, err := crypto.Ecrecover(sighash[:], sig)
 	if err != nil {
 		return common.Address{}, err
@@ -266,18 +246,8 @@ func recoverPlain(sighash common.Hash, R, S, Vb *big.Int, homestead bool) (commo
 	return addr, nil
 }
 
-//YY 将原来的deriveChainId方法改为deriveChainId1，然后重写deriveChainId方法
-func deriveChainId(v *big.Int) *big.Int {
-	v1 := new(big.Int).Set(v)
-	tmp := big.NewInt(128)
-	if v1.Cmp(tmp) > 0 {
-		v1.Sub(v1, tmp)
-	}
-	return deriveChainId1(v1)
-}
-
 // deriveChainId derives the chain id from the given v parameter
-func deriveChainId1(v *big.Int) *big.Int {
+func deriveChainId(v *big.Int) *big.Int {
 	if v.BitLen() <= 64 {
 		v := v.Uint64()
 		if v == 27 || v == 28 {

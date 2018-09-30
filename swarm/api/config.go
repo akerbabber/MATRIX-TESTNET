@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package api
 
@@ -21,15 +21,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/contracts/ens"
-	"github.com/matrix/go-matrix/crypto"
-	"github.com/matrix/go-matrix/log"
-	"github.com/matrix/go-matrix/node"
-	"github.com/matrix/go-matrix/swarm/network"
-	"github.com/matrix/go-matrix/swarm/services/swap"
-	"github.com/matrix/go-matrix/swarm/storage"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/contracts/ens"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/node"
+	"github.com/ethereum/go-ethereum/p2p/enode"
+	"github.com/ethereum/go-ethereum/swarm/log"
+	"github.com/ethereum/go-ethereum/swarm/network"
+	"github.com/ethereum/go-ethereum/swarm/pss"
+	"github.com/ethereum/go-ethereum/swarm/services/swap"
+	"github.com/ethereum/go-ethereum/swarm/storage"
 )
 
 const (
@@ -41,47 +44,58 @@ const (
 // allow several bzz nodes running in parallel
 type Config struct {
 	// serialised/persisted fields
-	*storage.StoreParams
-	*storage.ChunkerParams
+	*storage.FileStoreParams
+	*storage.LocalStoreParams
 	*network.HiveParams
-	Swap *swap.SwapParams
-	*network.SyncParams
-	Contract    common.Address
-	EnsRoot     common.Address
-	EnsAPIs     []string
-	Path        string
-	ListenAddr  string
-	Port        string
-	PublicKey   string
-	BzzKey      string
-	NetworkId   uint64
-	SwapEnabled bool
-	SyncEnabled bool
-	SwapApi     string
-	Cors        string
-	BzzAccount  string
-	BootNodes   string
+	Swap *swap.LocalProfile
+	Pss  *pss.PssParams
+	//*network.SyncParams
+	Contract             common.Address
+	EnsRoot              common.Address
+	EnsAPIs              []string
+	Path                 string
+	ListenAddr           string
+	Port                 string
+	PublicKey            string
+	BzzKey               string
+	NodeID               string
+	NetworkID            uint64
+	SwapEnabled          bool
+	SyncEnabled          bool
+	SyncingSkipCheck     bool
+	DeliverySkipCheck    bool
+	MaxStreamPeerServers int
+	LightNodeEnabled     bool
+	SyncUpdateDelay      time.Duration
+	SwapAPI              string
+	Cors                 string
+	BzzAccount           string
+	privateKey           *ecdsa.PrivateKey
 }
 
 //create a default config with all parameters to set to defaults
-func NewDefaultConfig() (self *Config) {
+func NewConfig() (c *Config) {
 
-	self = &Config{
-		StoreParams:   storage.NewDefaultStoreParams(),
-		ChunkerParams: storage.NewChunkerParams(),
-		HiveParams:    network.NewDefaultHiveParams(),
-		SyncParams:    network.NewDefaultSyncParams(),
-		Swap:          swap.NewDefaultSwapParams(),
-		ListenAddr:    DefaultHTTPListenAddr,
-		Port:          DefaultHTTPPort,
-		Path:          node.DefaultDataDir(),
-		EnsAPIs:       nil,
-		EnsRoot:       ens.TestNetAddress,
-		NetworkId:     network.NetworkId,
-		SwapEnabled:   false,
-		SyncEnabled:   true,
-		SwapApi:       "",
-		BootNodes:     "",
+	c = &Config{
+		LocalStoreParams: storage.NewDefaultLocalStoreParams(),
+		FileStoreParams:  storage.NewFileStoreParams(),
+		HiveParams:       network.NewHiveParams(),
+		//SyncParams:    network.NewDefaultSyncParams(),
+		Swap:                 swap.NewDefaultSwapParams(),
+		Pss:                  pss.NewPssParams(),
+		ListenAddr:           DefaultHTTPListenAddr,
+		Port:                 DefaultHTTPPort,
+		Path:                 node.DefaultDataDir(),
+		EnsAPIs:              nil,
+		EnsRoot:              ens.TestNetAddress,
+		NetworkID:            network.DefaultNetworkID,
+		SwapEnabled:          false,
+		SyncEnabled:          true,
+		SyncingSkipCheck:     false,
+		MaxStreamPeerServers: 10000,
+		DeliverySkipCheck:    true,
+		SyncUpdateDelay:      15 * time.Second,
+		SwapAPI:              "",
 	}
 
 	return
@@ -89,11 +103,11 @@ func NewDefaultConfig() (self *Config) {
 
 //some config params need to be initialized after the complete
 //config building phase is completed (e.g. due to overriding flags)
-func (self *Config) Init(prvKey *ecdsa.PrivateKey) {
+func (c *Config) Init(prvKey *ecdsa.PrivateKey) {
 
 	address := crypto.PubkeyToAddress(prvKey.PublicKey)
-	self.Path = filepath.Join(self.Path, "bzz-"+common.Bytes2Hex(address.Bytes()))
-	err := os.MkdirAll(self.Path, os.ModePerm)
+	c.Path = filepath.Join(c.Path, "bzz-"+common.Bytes2Hex(address.Bytes()))
+	err := os.MkdirAll(c.Path, os.ModePerm)
 	if err != nil {
 		log.Error(fmt.Sprintf("Error creating root swarm data directory: %v", err))
 		return
@@ -103,11 +117,25 @@ func (self *Config) Init(prvKey *ecdsa.PrivateKey) {
 	pubkeyhex := common.ToHex(pubkey)
 	keyhex := crypto.Keccak256Hash(pubkey).Hex()
 
-	self.PublicKey = pubkeyhex
-	self.BzzKey = keyhex
+	c.PublicKey = pubkeyhex
+	c.BzzKey = keyhex
+	c.NodeID = enode.PubkeyToIDV4(&prvKey.PublicKey).String()
 
-	self.Swap.Init(self.Contract, prvKey)
-	self.SyncParams.Init(self.Path)
-	self.HiveParams.Init(self.Path)
-	self.StoreParams.Init(self.Path)
+	if c.SwapEnabled {
+		c.Swap.Init(c.Contract, prvKey)
+	}
+
+	c.privateKey = prvKey
+	c.LocalStoreParams.Init(c.Path)
+	c.LocalStoreParams.BaseKey = common.FromHex(keyhex)
+
+	c.Pss = c.Pss.WithPrivateKey(c.privateKey)
+}
+
+func (c *Config) ShiftPrivateKey() (privKey *ecdsa.PrivateKey) {
+	if c.privateKey != nil {
+		privKey = c.privateKey
+		c.privateKey = nil
+	}
+	return privKey
 }

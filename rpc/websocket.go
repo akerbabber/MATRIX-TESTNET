@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2015 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package rpc
 
@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -29,9 +30,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/matrix/go-matrix/log"
+	mapset "github.com/deckarep/golang-set"
+	"github.com/ethereum/go-ethereum/log"
 	"golang.org/x/net/websocket"
-	"gopkg.in/fatih/set.v0"
 )
 
 // websocketJSONCodec is a custom JSON codec with payload size enforcement and
@@ -84,7 +85,7 @@ func NewWSServer(allowedOrigins []string, srv *Server) *http.Server {
 // websocket upgrade process. When a '*' is specified as an allowed origins all
 // connections are accepted.
 func wsHandshakeValidator(allowedOrigins []string) func(*websocket.Config, *http.Request) error {
-	origins := set.New()
+	origins := mapset.NewSet()
 	allowAllOrigins := false
 
 	for _, origin := range allowedOrigins {
@@ -97,18 +98,18 @@ func wsHandshakeValidator(allowedOrigins []string) func(*websocket.Config, *http
 	}
 
 	// allow localhost if no allowedOrigins are specified.
-	if len(origins.List()) == 0 {
+	if len(origins.ToSlice()) == 0 {
 		origins.Add("http://localhost")
 		if hostname, err := os.Hostname(); err == nil {
 			origins.Add("http://" + strings.ToLower(hostname))
 		}
 	}
 
-	log.Debug(fmt.Sprintf("Allowed origin(s) for WS RPC interface %v\n", origins.List()))
+	log.Debug(fmt.Sprintf("Allowed origin(s) for WS RPC interface %v\n", origins.ToSlice()))
 
 	f := func(cfg *websocket.Config, req *http.Request) error {
 		origin := strings.ToLower(req.Header.Get("Origin"))
-		if allowAllOrigins || origins.Has(origin) {
+		if allowAllOrigins || origins.Contains(origin) {
 			return nil
 		}
 		log.Warn(fmt.Sprintf("origin '%s' not allowed on WS-RPC interface\n", origin))
@@ -118,12 +119,7 @@ func wsHandshakeValidator(allowedOrigins []string) func(*websocket.Config, *http
 	return f
 }
 
-// DialWebsocket creates a new RPC client that communicates with a JSON-RPC server
-// that is listening on the given endpoint.
-//
-// The context is used for the initial connection establishment. It does not
-// affect subsequent interactions with the client.
-func DialWebsocket(ctx context.Context, endpoint, origin string) (*Client, error) {
+func wsGetConfig(endpoint, origin string) (*websocket.Config, error) {
 	if origin == "" {
 		var err error
 		if origin, err = os.Hostname(); err != nil {
@@ -136,6 +132,25 @@ func DialWebsocket(ctx context.Context, endpoint, origin string) (*Client, error
 		}
 	}
 	config, err := websocket.NewConfig(endpoint, origin)
+	if err != nil {
+		return nil, err
+	}
+
+	if config.Location.User != nil {
+		b64auth := base64.StdEncoding.EncodeToString([]byte(config.Location.User.String()))
+		config.Header.Add("Authorization", "Basic "+b64auth)
+		config.Location.User = nil
+	}
+	return config, nil
+}
+
+// DialWebsocket creates a new RPC client that communicates with a JSON-RPC server
+// that is listening on the given endpoint.
+//
+// The context is used for the initial connection establishment. It does not
+// affect subsequent interactions with the client.
+func DialWebsocket(ctx context.Context, endpoint, origin string) (*Client, error) {
+	config, err := wsGetConfig(endpoint, origin)
 	if err != nil {
 		return nil, err
 	}

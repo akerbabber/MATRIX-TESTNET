@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package simulations
 
@@ -27,23 +27,23 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matrix/go-matrix/event"
-	"github.com/matrix/go-matrix/node"
-	"github.com/matrix/go-matrix/p2p"
-	"github.com/matrix/go-matrix/p2p/discover"
-	"github.com/matrix/go-matrix/p2p/simulations/adapters"
-	"github.com/matrix/go-matrix/rpc"
+	"github.com/ethereum/go-ethereum/event"
+	"github.com/ethereum/go-ethereum/node"
+	"github.com/ethereum/go-ethereum/p2p"
+	"github.com/ethereum/go-ethereum/p2p/enode"
+	"github.com/ethereum/go-ethereum/p2p/simulations/adapters"
+	"github.com/ethereum/go-ethereum/rpc"
 )
 
 // testService implements the node.Service interface and provides protocols
 // and APIs which are useful for testing nodes in a simulation network
 type testService struct {
-	id discover.NodeID
+	id enode.ID
 
 	// peerCount is incremented once a peer handshake has been performed
 	peerCount int64
 
-	peers    map[discover.NodeID]*testPeer
+	peers    map[enode.ID]*testPeer
 	peersMtx sync.Mutex
 
 	// state stores []byte which is used to test creating and loading
@@ -54,7 +54,7 @@ type testService struct {
 func newTestService(ctx *adapters.ServiceContext) (node.Service, error) {
 	svc := &testService{
 		id:    ctx.Config.ID,
-		peers: make(map[discover.NodeID]*testPeer),
+		peers: make(map[enode.ID]*testPeer),
 	}
 	svc.state.Store(ctx.Snapshot)
 	return svc, nil
@@ -65,7 +65,7 @@ type testPeer struct {
 	dumReady  chan struct{}
 }
 
-func (t *testService) peer(id discover.NodeID) *testPeer {
+func (t *testService) peer(id enode.ID) *testPeer {
 	t.peersMtx.Lock()
 	defer t.peersMtx.Unlock()
 	if peer, ok := t.peers[id]; ok {
@@ -348,7 +348,8 @@ func startTestNetwork(t *testing.T, client *Client) []string {
 	nodeCount := 2
 	nodeIDs := make([]string, nodeCount)
 	for i := 0; i < nodeCount; i++ {
-		node, err := client.CreateNode(nil)
+		config := adapters.RandomNodeConfig()
+		node, err := client.CreateNode(config)
 		if err != nil {
 			t.Fatalf("error creating node: %s", err)
 		}
@@ -409,7 +410,7 @@ func (t *expectEvents) nodeEvent(id string, up bool) *Event {
 		Type: EventTypeNode,
 		Node: &Node{
 			Config: &adapters.NodeConfig{
-				ID: discover.MustHexID(id),
+				ID: enode.HexID(id),
 			},
 			Up: up,
 		},
@@ -420,8 +421,8 @@ func (t *expectEvents) connEvent(one, other string, up bool) *Event {
 	return &Event{
 		Type: EventTypeConn,
 		Conn: &Conn{
-			One:   discover.MustHexID(one),
-			Other: discover.MustHexID(other),
+			One:   enode.HexID(one),
+			Other: enode.HexID(other),
 			Up:    up,
 		},
 	}
@@ -527,7 +528,9 @@ func TestHTTPNodeRPC(t *testing.T) {
 
 	// start a node in the network
 	client := NewClient(s.URL)
-	node, err := client.CreateNode(nil)
+
+	config := adapters.RandomNodeConfig()
+	node, err := client.CreateNode(config)
 	if err != nil {
 		t.Fatalf("error creating node: %s", err)
 	}
@@ -589,7 +592,8 @@ func TestHTTPSnapshot(t *testing.T) {
 	nodeCount := 2
 	nodes := make([]*p2p.NodeInfo, nodeCount)
 	for i := 0; i < nodeCount; i++ {
-		node, err := client.CreateNode(nil)
+		config := adapters.RandomNodeConfig()
+		node, err := client.CreateNode(config)
 		if err != nil {
 			t.Fatalf("error creating node: %s", err)
 		}

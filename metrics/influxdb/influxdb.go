@@ -1,27 +1,12 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
-//
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
-//
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 package influxdb
 
 import (
 	"fmt"
-	"log"
 	uurl "net/url"
 	"time"
 
-	"github.com/matrix/go-matrix/metrics"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/influxdata/influxdb/client"
 )
 
@@ -50,7 +35,7 @@ func InfluxDB(r metrics.Registry, d time.Duration, url, database, username, pass
 func InfluxDBWithTags(r metrics.Registry, d time.Duration, url, database, username, password, namespace string, tags map[string]string) {
 	u, err := uurl.Parse(url)
 	if err != nil {
-		log.Printf("unable to parse InfluxDB url %s. err=%v", url, err)
+		log.Warn("Unable to parse InfluxDB", "url", url, "err", err)
 		return
 	}
 
@@ -66,7 +51,7 @@ func InfluxDBWithTags(r metrics.Registry, d time.Duration, url, database, userna
 		cache:     make(map[string]int64),
 	}
 	if err := rep.makeClient(); err != nil {
-		log.Printf("unable to make InfluxDB client. err=%v", err)
+		log.Warn("Unable to make InfluxDB client", "err", err)
 		return
 	}
 
@@ -91,15 +76,15 @@ func (r *reporter) run() {
 		select {
 		case <-intervalTicker:
 			if err := r.send(); err != nil {
-				log.Printf("unable to send to InfluxDB. err=%v", err)
+				log.Warn("Unable to send to InfluxDB", "err", err)
 			}
 		case <-pingTicker:
 			_, _, err := r.client.Ping()
 			if err != nil {
-				log.Printf("got error while sending a ping to InfluxDB, trying to recreate client. err=%v", err)
+				log.Warn("Got error while sending a ping to InfluxDB, trying to recreate client", "err", err)
 
 				if err = r.makeClient(); err != nil {
-					log.Printf("unable to make InfluxDB client. err=%v", err)
+					log.Warn("Unable to make InfluxDB client", "err", err)
 				}
 			}
 		}

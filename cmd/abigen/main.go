@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of go-ethereum.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// go-ethereum is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// go-ethereum is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU General Public License
+// along with go-ethereum. If not, see <http://www.gnu.org/licenses/>.
 
 package main
 
@@ -24,16 +24,16 @@ import (
 	"os"
 	"strings"
 
-	"github.com/matrix/go-matrix/accounts/abi/bind"
-	"github.com/matrix/go-matrix/common/compiler"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common/compiler"
 )
 
 var (
-	abiFlag = flag.String("abi", "", "Path to the Matrix contract ABI json to bind")
-	binFlag = flag.String("bin", "", "Path to the Matrix contract bytecode (generate deploy method)")
+	abiFlag = flag.String("abi", "", "Path to the Ethereum contract ABI json to bind, - for STDIN")
+	binFlag = flag.String("bin", "", "Path to the Ethereum contract bytecode (generate deploy method)")
 	typFlag = flag.String("type", "", "Struct name for the binding (default = package name)")
 
-	solFlag  = flag.String("sol", "", "Path to the Matrix contract Solidity source to build and bind")
+	solFlag  = flag.String("sol", "", "Path to the Ethereum contract Solidity source to build and bind")
 	solcFlag = flag.String("solc", "solc", "Solidity compiler to use if source builds are requested")
 	excFlag  = flag.String("exc", "", "Comma separated types to exclude from binding")
 
@@ -75,16 +75,27 @@ func main() {
 		bins  []string
 		types []string
 	)
-	if *solFlag != "" {
+	if *solFlag != "" || *abiFlag == "-" {
 		// Generate the list of types to exclude from binding
 		exclude := make(map[string]bool)
 		for _, kind := range strings.Split(*excFlag, ",") {
 			exclude[strings.ToLower(kind)] = true
 		}
-		contracts, err := compiler.CompileSolidity(*solcFlag, *solFlag)
-		if err != nil {
-			fmt.Printf("Failed to build Solidity contract: %v\n", err)
-			os.Exit(-1)
+
+		var contracts map[string]*compiler.Contract
+		var err error
+		if *solFlag != "" {
+			contracts, err = compiler.CompileSolidity(*solcFlag, *solFlag)
+			if err != nil {
+				fmt.Printf("Failed to build Solidity contract: %v\n", err)
+				os.Exit(-1)
+			}
+		} else {
+			contracts, err = contractsFromStdin()
+			if err != nil {
+				fmt.Printf("Failed to read input ABIs from STDIN: %v\n", err)
+				os.Exit(-1)
+			}
 		}
 		// Gather all non-excluded contract for binding
 		for name, contract := range contracts {
@@ -137,4 +148,13 @@ func main() {
 		fmt.Printf("Failed to write ABI binding: %v\n", err)
 		os.Exit(-1)
 	}
+}
+
+func contractsFromStdin() (map[string]*compiler.Contract, error) {
+	bytes, err := ioutil.ReadAll(os.Stdin)
+	if err != nil {
+		return nil, err
+	}
+
+	return compiler.ParseCombinedJSON(bytes, "", "", "", "")
 }

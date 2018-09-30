@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2014 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package node
 
@@ -25,14 +25,15 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/matrix/go-matrix/accounts"
-	"github.com/matrix/go-matrix/accounts/keystore"
-	"github.com/matrix/go-matrix/accounts/usbwallet"
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/crypto"
-	"github.com/matrix/go-matrix/log"
-	"github.com/matrix/go-matrix/p2p"
-	"github.com/matrix/go-matrix/p2p/discover"
+	"github.com/ethereum/go-ethereum/accounts"
+	"github.com/ethereum/go-ethereum/accounts/keystore"
+	"github.com/ethereum/go-ethereum/accounts/usbwallet"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/p2p"
+	"github.com/ethereum/go-ethereum/p2p/enode"
+	"github.com/ethereum/go-ethereum/rpc"
 )
 
 const (
@@ -48,7 +49,7 @@ const (
 // all registered services.
 type Config struct {
 	// Name sets the instance name of the node. It must not contain the / character and is
-	// used in the devp2p node identifier. The instance name of gman is "gman". If no
+	// used in the devp2p node identifier. The instance name of geth is "geth". If no
 	// value is specified, the basename of the current executable is used.
 	Name string `toml:"-"`
 
@@ -119,6 +120,10 @@ type Config struct {
 	// exposed.
 	HTTPModules []string `toml:",omitempty"`
 
+	// HTTPTimeouts allows for customization of the timeout values used by the HTTP RPC
+	// interface.
+	HTTPTimeouts rpc.HTTPTimeouts
+
 	// WSHost is the host interface on which to start the websocket RPC server. If
 	// this field is empty, no websocket API endpoint will be started.
 	WSHost string `toml:",omitempty"`
@@ -179,7 +184,7 @@ func (c *Config) NodeDB() string {
 	if c.DataDir == "" {
 		return "" // ephemeral
 	}
-	return c.resolvePath(datadirNodeDatabase)
+	return c.ResolvePath(datadirNodeDatabase)
 }
 
 // DefaultIPCEndpoint returns the IPC path used by default.
@@ -227,9 +232,9 @@ func DefaultWSEndpoint() string {
 // NodeName returns the devp2p node identifier.
 func (c *Config) NodeName() string {
 	name := c.name()
-	// Backwards compatibility: previous versions used title-cased "Gman", keep that.
-	if name == "gman" || name == "gman-testnet" {
-		name = "Gman"
+	// Backwards compatibility: previous versions used title-cased "Geth", keep that.
+	if name == "geth" || name == "geth-testnet" {
+		name = "Geth"
 	}
 	if c.UserIdent != "" {
 		name += "/" + c.UserIdent
@@ -253,8 +258,8 @@ func (c *Config) name() string {
 	return c.Name
 }
 
-// These resources are resolved differently for "gman" instances.
-var isOldGmanResource = map[string]bool{
+// These resources are resolved differently for "geth" instances.
+var isOldGethResource = map[string]bool{
 	"chaindata":          true,
 	"nodes":              true,
 	"nodekey":            true,
@@ -262,8 +267,8 @@ var isOldGmanResource = map[string]bool{
 	"trusted-nodes.json": true,
 }
 
-// resolvePath resolves path in the instance directory.
-func (c *Config) resolvePath(path string) string {
+// ResolvePath resolves path in the instance directory.
+func (c *Config) ResolvePath(path string) string {
 	if filepath.IsAbs(path) {
 		return path
 	}
@@ -271,10 +276,10 @@ func (c *Config) resolvePath(path string) string {
 		return ""
 	}
 	// Backwards-compatibility: ensure that data directory files created
-	// by gman 1.4 are used if they exist.
-	if c.name() == "gman" && isOldGmanResource[path] {
+	// by geth 1.4 are used if they exist.
+	if c.name() == "geth" && isOldGethResource[path] {
 		oldpath := ""
-		if c.Name == "gman" {
+		if c.Name == "geth" {
 			oldpath = filepath.Join(c.DataDir, path)
 		}
 		if oldpath != "" && common.FileExist(oldpath) {
@@ -309,7 +314,7 @@ func (c *Config) NodeKey() *ecdsa.PrivateKey {
 		return key
 	}
 
-	keyfile := c.resolvePath(datadirPrivateKey)
+	keyfile := c.ResolvePath(datadirPrivateKey)
 	if key, err := crypto.LoadECDSA(keyfile); err == nil {
 		return key
 	}
@@ -331,18 +336,18 @@ func (c *Config) NodeKey() *ecdsa.PrivateKey {
 }
 
 // StaticNodes returns a list of node enode URLs configured as static nodes.
-func (c *Config) StaticNodes() []*discover.Node {
-	return c.parsePersistentNodes(c.resolvePath(datadirStaticNodes))
+func (c *Config) StaticNodes() []*enode.Node {
+	return c.parsePersistentNodes(c.ResolvePath(datadirStaticNodes))
 }
 
 // TrustedNodes returns a list of node enode URLs configured as trusted nodes.
-func (c *Config) TrustedNodes() []*discover.Node {
-	return c.parsePersistentNodes(c.resolvePath(datadirTrustedNodes))
+func (c *Config) TrustedNodes() []*enode.Node {
+	return c.parsePersistentNodes(c.ResolvePath(datadirTrustedNodes))
 }
 
 // parsePersistentNodes parses a list of discovery node URLs loaded from a .json
 // file from within the data directory.
-func (c *Config) parsePersistentNodes(path string) []*discover.Node {
+func (c *Config) parsePersistentNodes(path string) []*enode.Node {
 	// Short circuit if no node config is present
 	if c.DataDir == "" {
 		return nil
@@ -357,12 +362,12 @@ func (c *Config) parsePersistentNodes(path string) []*discover.Node {
 		return nil
 	}
 	// Interpret the list as a discovery node array
-	var nodes []*discover.Node
+	var nodes []*enode.Node
 	for _, url := range nodelist {
 		if url == "" {
 			continue
 		}
-		node, err := discover.ParseNode(url)
+		node, err := enode.ParseV4(url)
 		if err != nil {
 			log.Error(fmt.Sprintf("Node URL %s: %v\n", url, err))
 			continue
@@ -405,7 +410,7 @@ func makeAccountManager(conf *Config) (*accounts.Manager, string, error) {
 	var ephemeral string
 	if keydir == "" {
 		// There is no datadir.
-		keydir, err = ioutil.TempDir("", "go-matrix-keystore")
+		keydir, err = ioutil.TempDir("", "go-ethereum-keystore")
 		ephemeral = keydir
 	}
 

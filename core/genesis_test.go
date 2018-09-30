@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package core
 
@@ -22,12 +22,12 @@ import (
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/consensus/manash"
-	"github.com/matrix/go-matrix/core/rawdb"
-	"github.com/matrix/go-matrix/core/vm"
-	"github.com/matrix/go-matrix/mandb"
-	"github.com/matrix/go-matrix/params"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/consensus/ethash"
+	"github.com/ethereum/go-ethereum/core/rawdb"
+	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/params"
 )
 
 func TestDefaultGenesisBlock(t *testing.T) {
@@ -55,14 +55,14 @@ func TestSetupGenesis(t *testing.T) {
 	oldcustomg.Config = &params.ChainConfig{HomesteadBlock: big.NewInt(2)}
 	tests := []struct {
 		name       string
-		fn         func(mandb.Database) (*params.ChainConfig, common.Hash, error)
+		fn         func(ethdb.Database) (*params.ChainConfig, common.Hash, error)
 		wantConfig *params.ChainConfig
 		wantHash   common.Hash
 		wantErr    error
 	}{
 		{
 			name: "genesis without ChainConfig",
-			fn: func(db mandb.Database) (*params.ChainConfig, common.Hash, error) {
+			fn: func(db ethdb.Database) (*params.ChainConfig, common.Hash, error) {
 				return SetupGenesisBlock(db, new(Genesis))
 			},
 			wantErr:    errGenesisNoConfig,
@@ -70,7 +70,7 @@ func TestSetupGenesis(t *testing.T) {
 		},
 		{
 			name: "no block in DB, genesis == nil",
-			fn: func(db mandb.Database) (*params.ChainConfig, common.Hash, error) {
+			fn: func(db ethdb.Database) (*params.ChainConfig, common.Hash, error) {
 				return SetupGenesisBlock(db, nil)
 			},
 			wantHash:   params.MainnetGenesisHash,
@@ -78,7 +78,7 @@ func TestSetupGenesis(t *testing.T) {
 		},
 		{
 			name: "mainnet block in DB, genesis == nil",
-			fn: func(db mandb.Database) (*params.ChainConfig, common.Hash, error) {
+			fn: func(db ethdb.Database) (*params.ChainConfig, common.Hash, error) {
 				DefaultGenesisBlock().MustCommit(db)
 				return SetupGenesisBlock(db, nil)
 			},
@@ -87,7 +87,7 @@ func TestSetupGenesis(t *testing.T) {
 		},
 		{
 			name: "custom block in DB, genesis == nil",
-			fn: func(db mandb.Database) (*params.ChainConfig, common.Hash, error) {
+			fn: func(db ethdb.Database) (*params.ChainConfig, common.Hash, error) {
 				customg.MustCommit(db)
 				return SetupGenesisBlock(db, nil)
 			},
@@ -96,7 +96,7 @@ func TestSetupGenesis(t *testing.T) {
 		},
 		{
 			name: "custom block in DB, genesis == testnet",
-			fn: func(db mandb.Database) (*params.ChainConfig, common.Hash, error) {
+			fn: func(db ethdb.Database) (*params.ChainConfig, common.Hash, error) {
 				customg.MustCommit(db)
 				return SetupGenesisBlock(db, DefaultTestnetGenesisBlock())
 			},
@@ -106,7 +106,7 @@ func TestSetupGenesis(t *testing.T) {
 		},
 		{
 			name: "compatible config in DB",
-			fn: func(db mandb.Database) (*params.ChainConfig, common.Hash, error) {
+			fn: func(db ethdb.Database) (*params.ChainConfig, common.Hash, error) {
 				oldcustomg.MustCommit(db)
 				return SetupGenesisBlock(db, &customg)
 			},
@@ -115,15 +115,15 @@ func TestSetupGenesis(t *testing.T) {
 		},
 		{
 			name: "incompatible config in DB",
-			fn: func(db mandb.Database) (*params.ChainConfig, common.Hash, error) {
+			fn: func(db ethdb.Database) (*params.ChainConfig, common.Hash, error) {
 				// Commit the 'old' genesis block with Homestead transition at #2.
 				// Advance to block #4, past the homestead transition block of customg.
 				genesis := oldcustomg.MustCommit(db)
 
-				bc, _ := NewBlockChain(db, nil, oldcustomg.Config, manash.NewFullFaker(), vm.Config{})
+				bc, _ := NewBlockChain(db, nil, oldcustomg.Config, ethash.NewFullFaker(), vm.Config{}, nil)
 				defer bc.Stop()
 
-				blocks, _ := GenerateChain(oldcustomg.Config, genesis, manash.NewFaker(), db, 4, nil)
+				blocks, _ := GenerateChain(oldcustomg.Config, genesis, ethash.NewFaker(), db, 4, nil)
 				bc.InsertChain(blocks)
 				bc.CurrentBlock()
 				// This should return a compatibility error.
@@ -141,7 +141,7 @@ func TestSetupGenesis(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		db := mandb.NewMemDatabase()
+		db := ethdb.NewMemDatabase()
 		config, hash, err := test.fn(db)
 		// Check the return values.
 		if !reflect.DeepEqual(err, test.wantErr) {

@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2014 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package state
 
@@ -22,9 +22,9 @@ import (
 	"io"
 	"math/big"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/crypto"
-	"github.com/matrix/go-matrix/rlp"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/rlp"
 )
 
 var emptyCodeHash = crypto.Keccak256(nil)
@@ -54,7 +54,7 @@ func (self Storage) Copy() Storage {
 	return cpy
 }
 
-// stateObject represents an Matrix account which is being modified.
+// stateObject represents an Ethereum account which is being modified.
 //
 // The usage pattern is as follows:
 // First you need to obtain a state object.
@@ -62,7 +62,7 @@ func (self Storage) Copy() Storage {
 // Finally, call CommitTrie to write the modified storage trie into a database.
 type stateObject struct {
 	address  common.Address
-	addrHash common.Hash // hash of matrix address of the account
+	addrHash common.Hash // hash of ethereum address of the account
 	data     Account
 	db       *StateDB
 
@@ -77,7 +77,7 @@ type stateObject struct {
 	trie Trie // storage trie, which becomes non-nil on first access
 	code Code // contract bytecode, which gets set when code is loaded
 
-	cachedStorage Storage // Storage entry cache to avoid duplicate reads
+	originStorage Storage // Storage cache of original entries to dedup rewrites
 	dirtyStorage  Storage // Storage entries that need to be flushed to disk
 
 	// Cache flags.
@@ -93,7 +93,7 @@ func (s *stateObject) empty() bool {
 	return s.data.Nonce == 0 && s.data.Balance.Sign() == 0 && bytes.Equal(s.data.CodeHash, emptyCodeHash)
 }
 
-// Account is the Matrix consensus representation of accounts.
+// Account is the Ethereum consensus representation of accounts.
 // These objects are stored in the main account trie.
 type Account struct {
 	Nonce    uint64
@@ -115,7 +115,7 @@ func newObject(db *StateDB, address common.Address, data Account) *stateObject {
 		address:       address,
 		addrHash:      crypto.Keccak256Hash(address[:]),
 		data:          data,
-		cachedStorage: make(Storage),
+		originStorage: make(Storage),
 		dirtyStorage:  make(Storage),
 	}
 }
@@ -159,13 +159,25 @@ func (c *stateObject) getTrie(db Database) Trie {
 	return c.trie
 }
 
-// GetState returns a value in account storage.
+// GetState retrieves a value from the account storage trie.
 func (self *stateObject) GetState(db Database, key common.Hash) common.Hash {
-	value, exists := self.cachedStorage[key]
-	if exists {
+	// If we have a dirty value for this state entry, return it
+	value, dirty := self.dirtyStorage[key]
+	if dirty {
 		return value
 	}
-	// Load from DB in case it is missing.
+	// Otherwise return the entry's original value
+	return self.GetCommittedState(db, key)
+}
+
+// GetCommittedState retrieves a value from the committed account storage trie.
+func (self *stateObject) GetCommittedState(db Database, key common.Hash) common.Hash {
+	// If we have the original value cached, return that
+	value, cached := self.originStorage[key]
+	if cached {
+		return value
+	}
+	// Otherwise load the value from the database
 	enc, err := self.getTrie(db).TryGet(key[:])
 	if err != nil {
 		self.setError(err)
@@ -178,22 +190,27 @@ func (self *stateObject) GetState(db Database, key common.Hash) common.Hash {
 		}
 		value.SetBytes(content)
 	}
-	self.cachedStorage[key] = value
+	self.originStorage[key] = value
 	return value
 }
 
 // SetState updates a value in account storage.
 func (self *stateObject) SetState(db Database, key, value common.Hash) {
+	// If the new value is the same as old, don't set
+	prev := self.GetState(db, key)
+	if prev == value {
+		return
+	}
+	// New value is different, update and journal the change
 	self.db.journal.append(storageChange{
 		account:  &self.address,
 		key:      key,
-		prevalue: self.GetState(db, key),
+		prevalue: prev,
 	})
 	self.setState(key, value)
 }
 
 func (self *stateObject) setState(key, value common.Hash) {
-	self.cachedStorage[key] = value
 	self.dirtyStorage[key] = value
 }
 
@@ -202,6 +219,13 @@ func (self *stateObject) updateTrie(db Database) Trie {
 	tr := self.getTrie(db)
 	for key, value := range self.dirtyStorage {
 		delete(self.dirtyStorage, key)
+
+		// Skip noop changes, persist actual changes
+		if value == self.originStorage[key] {
+			continue
+		}
+		self.originStorage[key] = value
+
 		if (value == common.Hash{}) {
 			self.setError(tr.TryDelete(key[:]))
 			continue
@@ -219,7 +243,7 @@ func (self *stateObject) updateRoot(db Database) {
 	self.data.Root = self.trie.Hash()
 }
 
-// CommitTrie the storage trie of the object to dwb.
+// CommitTrie the storage trie of the object to db.
 // This updates the trie root.
 func (self *stateObject) CommitTrie(db Database) error {
 	self.updateTrie(db)
@@ -279,7 +303,7 @@ func (self *stateObject) deepCopy(db *StateDB) *stateObject {
 	}
 	stateObject.code = self.code
 	stateObject.dirtyStorage = self.dirtyStorage.Copy()
-	stateObject.cachedStorage = self.dirtyStorage.Copy()
+	stateObject.originStorage = self.originStorage.Copy()
 	stateObject.suicided = self.suicided
 	stateObject.dirtyCode = self.dirtyCode
 	stateObject.deleted = self.deleted

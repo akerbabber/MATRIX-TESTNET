@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of go-ethereum.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// go-ethereum is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// go-ethereum is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU General Public License
+// along with go-ethereum. If not, see <http://www.gnu.org/licenses/>.
 
 // This is a simple Whisper node. It could be used as a stand-alone bootstrap node.
 // Also, could be used for different test and diagnostics purposes.
@@ -35,16 +35,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/matrix/go-matrix/cmd/utils"
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/console"
-	"github.com/matrix/go-matrix/crypto"
-	"github.com/matrix/go-matrix/log"
-	"github.com/matrix/go-matrix/p2p"
-	"github.com/matrix/go-matrix/p2p/discover"
-	"github.com/matrix/go-matrix/p2p/nat"
-	"github.com/matrix/go-matrix/whisper/mailserver"
-	whisper "github.com/matrix/go-matrix/whisper/whisperv6"
+	"github.com/ethereum/go-ethereum/cmd/utils"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/console"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/p2p"
+	"github.com/ethereum/go-ethereum/p2p/enode"
+	"github.com/ethereum/go-ethereum/p2p/nat"
+	"github.com/ethereum/go-ethereum/whisper/mailserver"
+	whisper "github.com/ethereum/go-ethereum/whisper/whisperv6"
 	"golang.org/x/crypto/pbkdf2"
 )
 
@@ -140,8 +140,8 @@ func processArgs() {
 	}
 
 	if *asymmetricMode && len(*argPub) > 0 {
-		pub = crypto.ToECDSAPub(common.FromHex(*argPub))
-		if !isKeyValid(pub) {
+		var err error
+		if pub, err = crypto.UnmarshalPubkey(common.FromHex(*argPub)); err != nil {
 			utils.Fatalf("invalid public key")
 		}
 	}
@@ -175,7 +175,7 @@ func initialize() {
 	log.Root().SetHandler(log.LvlFilterHandler(log.Lvl(*argVerbosity), log.StreamHandler(os.Stderr, log.TerminalFormat(false))))
 
 	done = make(chan struct{})
-	var peers []*discover.Node
+	var peers []*enode.Node
 	var err error
 
 	if *generateKey {
@@ -203,7 +203,7 @@ func initialize() {
 		if len(*argEnode) == 0 {
 			argEnode = scanLineA("Please enter the peer's enode: ")
 		}
-		peer := discover.MustParseNode(*argEnode)
+		peer := enode.MustParseV4(*argEnode)
 		peers = append(peers, peer)
 	}
 
@@ -321,10 +321,6 @@ func startServer() error {
 	return nil
 }
 
-func isKeyValid(k *ecdsa.PublicKey) bool {
-	return k.X != nil && k.Y != nil
-}
-
 func configureNode() {
 	var err error
 	var p2pAccept bool
@@ -340,9 +336,8 @@ func configureNode() {
 			if b == nil {
 				utils.Fatalf("Error: can not convert hexadecimal string")
 			}
-			pub = crypto.ToECDSAPub(b)
-			if !isKeyValid(pub) {
-				utils.Fatalf("Error: invalid public key")
+			if pub, err = crypto.UnmarshalPubkey(b); err != nil {
+				utils.Fatalf("Error: invalid peer public key")
 			}
 		}
 	}
@@ -752,14 +747,14 @@ func requestExpiredMessagesLoop() {
 }
 
 func extractIDFromEnode(s string) []byte {
-	n, err := discover.ParseNode(s)
+	n, err := enode.ParseV4(s)
 	if err != nil {
 		utils.Fatalf("Failed to parse enode: %s", err)
 	}
-	return n.ID[:]
+	return n.ID().Bytes()
 }
 
-// obfuscateBloom adds 16 random bits to the the bloom
+// obfuscateBloom adds 16 random bits to the bloom
 // filter, in order to obfuscate the containing topics.
 // it does so deterministically within every session.
 // despite additional bits, it will match on average

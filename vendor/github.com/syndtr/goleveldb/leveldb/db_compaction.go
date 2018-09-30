@@ -1,18 +1,3 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
-//
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
-//
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 // Copyright (c) 2012, Suryandaru Triandana <syndtr@gmail.com>
 // All rights reserved.
 //
@@ -655,6 +640,16 @@ func (db *DB) tableNeedCompaction() bool {
 	return v.needCompaction()
 }
 
+// resumeWrite returns an indicator whether we should resume write operation if enough level0 files are compacted.
+func (db *DB) resumeWrite() bool {
+	v := db.s.version()
+	defer v.release()
+	if v.tLen(0) < db.s.o.GetWriteL0PauseTrigger() {
+		return true
+	}
+	return false
+}
+
 func (db *DB) pauseCompaction(ch chan<- struct{}) {
 	select {
 	case ch <- struct{}{}:
@@ -668,6 +663,7 @@ type cCmd interface {
 }
 
 type cAuto struct {
+	// Note for table compaction, an empty ackC represents it's a compaction waiting command.
 	ackC chan<- error
 }
 
@@ -780,8 +776,10 @@ func (db *DB) mCompaction() {
 }
 
 func (db *DB) tCompaction() {
-	var x cCmd
-	var ackQ []cCmd
+	var (
+		x           cCmd
+		ackQ, waitQ []cCmd
+	)
 
 	defer func() {
 		if x := recover(); x != nil {
@@ -792,6 +790,10 @@ func (db *DB) tCompaction() {
 		for i := range ackQ {
 			ackQ[i].ack(ErrClosed)
 			ackQ[i] = nil
+		}
+		for i := range waitQ {
+			waitQ[i].ack(ErrClosed)
+			waitQ[i] = nil
 		}
 		if x != nil {
 			x.ack(ErrClosed)
@@ -810,12 +812,25 @@ func (db *DB) tCompaction() {
 				return
 			default:
 			}
+			// Resume write operation as soon as possible.
+			if len(waitQ) > 0 && db.resumeWrite() {
+				for i := range waitQ {
+					waitQ[i].ack(nil)
+					waitQ[i] = nil
+				}
+				waitQ = waitQ[:0]
+			}
 		} else {
 			for i := range ackQ {
 				ackQ[i].ack(nil)
 				ackQ[i] = nil
 			}
 			ackQ = ackQ[:0]
+			for i := range waitQ {
+				waitQ[i].ack(nil)
+				waitQ[i] = nil
+			}
+			waitQ = waitQ[:0]
 			select {
 			case x = <-db.tcompCmdC:
 			case ch := <-db.tcompPauseC:
@@ -828,7 +843,11 @@ func (db *DB) tCompaction() {
 		if x != nil {
 			switch cmd := x.(type) {
 			case cAuto:
-				ackQ = append(ackQ, x)
+				if cmd.ackC != nil {
+					waitQ = append(waitQ, x)
+				} else {
+					ackQ = append(ackQ, x)
+				}
 			case cRange:
 				x.ack(db.tableRangeCompaction(cmd.level, cmd.min, cmd.max))
 			default:

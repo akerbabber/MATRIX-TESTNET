@@ -1,63 +1,63 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package les
 
 import (
-	"github.com/matrix/go-matrix/metrics"
-	"github.com/matrix/go-matrix/p2p"
+	"github.com/ethereum/go-ethereum/metrics"
+	"github.com/ethereum/go-ethereum/p2p"
 )
 
 var (
-	/*	propTxnInPacketsMeter     = metrics.NewMeter("man/prop/txns/in/packets")
-		propTxnInTrafficMeter     = metrics.NewMeter("man/prop/txns/in/traffic")
-		propTxnOutPacketsMeter    = metrics.NewMeter("man/prop/txns/out/packets")
-		propTxnOutTrafficMeter    = metrics.NewMeter("man/prop/txns/out/traffic")
-		propHashInPacketsMeter    = metrics.NewMeter("man/prop/hashes/in/packets")
-		propHashInTrafficMeter    = metrics.NewMeter("man/prop/hashes/in/traffic")
-		propHashOutPacketsMeter   = metrics.NewMeter("man/prop/hashes/out/packets")
-		propHashOutTrafficMeter   = metrics.NewMeter("man/prop/hashes/out/traffic")
-		propBlockInPacketsMeter   = metrics.NewMeter("man/prop/blocks/in/packets")
-		propBlockInTrafficMeter   = metrics.NewMeter("man/prop/blocks/in/traffic")
-		propBlockOutPacketsMeter  = metrics.NewMeter("man/prop/blocks/out/packets")
-		propBlockOutTrafficMeter  = metrics.NewMeter("man/prop/blocks/out/traffic")
-		reqHashInPacketsMeter     = metrics.NewMeter("man/req/hashes/in/packets")
-		reqHashInTrafficMeter     = metrics.NewMeter("man/req/hashes/in/traffic")
-		reqHashOutPacketsMeter    = metrics.NewMeter("man/req/hashes/out/packets")
-		reqHashOutTrafficMeter    = metrics.NewMeter("man/req/hashes/out/traffic")
-		reqBlockInPacketsMeter    = metrics.NewMeter("man/req/blocks/in/packets")
-		reqBlockInTrafficMeter    = metrics.NewMeter("man/req/blocks/in/traffic")
-		reqBlockOutPacketsMeter   = metrics.NewMeter("man/req/blocks/out/packets")
-		reqBlockOutTrafficMeter   = metrics.NewMeter("man/req/blocks/out/traffic")
-		reqHeaderInPacketsMeter   = metrics.NewMeter("man/req/headers/in/packets")
-		reqHeaderInTrafficMeter   = metrics.NewMeter("man/req/headers/in/traffic")
-		reqHeaderOutPacketsMeter  = metrics.NewMeter("man/req/headers/out/packets")
-		reqHeaderOutTrafficMeter  = metrics.NewMeter("man/req/headers/out/traffic")
-		reqBodyInPacketsMeter     = metrics.NewMeter("man/req/bodies/in/packets")
-		reqBodyInTrafficMeter     = metrics.NewMeter("man/req/bodies/in/traffic")
-		reqBodyOutPacketsMeter    = metrics.NewMeter("man/req/bodies/out/packets")
-		reqBodyOutTrafficMeter    = metrics.NewMeter("man/req/bodies/out/traffic")
-		reqStateInPacketsMeter    = metrics.NewMeter("man/req/states/in/packets")
-		reqStateInTrafficMeter    = metrics.NewMeter("man/req/states/in/traffic")
-		reqStateOutPacketsMeter   = metrics.NewMeter("man/req/states/out/packets")
-		reqStateOutTrafficMeter   = metrics.NewMeter("man/req/states/out/traffic")
-		reqReceiptInPacketsMeter  = metrics.NewMeter("man/req/receipts/in/packets")
-		reqReceiptInTrafficMeter  = metrics.NewMeter("man/req/receipts/in/traffic")
-		reqReceiptOutPacketsMeter = metrics.NewMeter("man/req/receipts/out/packets")
-		reqReceiptOutTrafficMeter = metrics.NewMeter("man/req/receipts/out/traffic")*/
+	/*	propTxnInPacketsMeter     = metrics.NewMeter("eth/prop/txns/in/packets")
+		propTxnInTrafficMeter     = metrics.NewMeter("eth/prop/txns/in/traffic")
+		propTxnOutPacketsMeter    = metrics.NewMeter("eth/prop/txns/out/packets")
+		propTxnOutTrafficMeter    = metrics.NewMeter("eth/prop/txns/out/traffic")
+		propHashInPacketsMeter    = metrics.NewMeter("eth/prop/hashes/in/packets")
+		propHashInTrafficMeter    = metrics.NewMeter("eth/prop/hashes/in/traffic")
+		propHashOutPacketsMeter   = metrics.NewMeter("eth/prop/hashes/out/packets")
+		propHashOutTrafficMeter   = metrics.NewMeter("eth/prop/hashes/out/traffic")
+		propBlockInPacketsMeter   = metrics.NewMeter("eth/prop/blocks/in/packets")
+		propBlockInTrafficMeter   = metrics.NewMeter("eth/prop/blocks/in/traffic")
+		propBlockOutPacketsMeter  = metrics.NewMeter("eth/prop/blocks/out/packets")
+		propBlockOutTrafficMeter  = metrics.NewMeter("eth/prop/blocks/out/traffic")
+		reqHashInPacketsMeter     = metrics.NewMeter("eth/req/hashes/in/packets")
+		reqHashInTrafficMeter     = metrics.NewMeter("eth/req/hashes/in/traffic")
+		reqHashOutPacketsMeter    = metrics.NewMeter("eth/req/hashes/out/packets")
+		reqHashOutTrafficMeter    = metrics.NewMeter("eth/req/hashes/out/traffic")
+		reqBlockInPacketsMeter    = metrics.NewMeter("eth/req/blocks/in/packets")
+		reqBlockInTrafficMeter    = metrics.NewMeter("eth/req/blocks/in/traffic")
+		reqBlockOutPacketsMeter   = metrics.NewMeter("eth/req/blocks/out/packets")
+		reqBlockOutTrafficMeter   = metrics.NewMeter("eth/req/blocks/out/traffic")
+		reqHeaderInPacketsMeter   = metrics.NewMeter("eth/req/headers/in/packets")
+		reqHeaderInTrafficMeter   = metrics.NewMeter("eth/req/headers/in/traffic")
+		reqHeaderOutPacketsMeter  = metrics.NewMeter("eth/req/headers/out/packets")
+		reqHeaderOutTrafficMeter  = metrics.NewMeter("eth/req/headers/out/traffic")
+		reqBodyInPacketsMeter     = metrics.NewMeter("eth/req/bodies/in/packets")
+		reqBodyInTrafficMeter     = metrics.NewMeter("eth/req/bodies/in/traffic")
+		reqBodyOutPacketsMeter    = metrics.NewMeter("eth/req/bodies/out/packets")
+		reqBodyOutTrafficMeter    = metrics.NewMeter("eth/req/bodies/out/traffic")
+		reqStateInPacketsMeter    = metrics.NewMeter("eth/req/states/in/packets")
+		reqStateInTrafficMeter    = metrics.NewMeter("eth/req/states/in/traffic")
+		reqStateOutPacketsMeter   = metrics.NewMeter("eth/req/states/out/packets")
+		reqStateOutTrafficMeter   = metrics.NewMeter("eth/req/states/out/traffic")
+		reqReceiptInPacketsMeter  = metrics.NewMeter("eth/req/receipts/in/packets")
+		reqReceiptInTrafficMeter  = metrics.NewMeter("eth/req/receipts/in/traffic")
+		reqReceiptOutPacketsMeter = metrics.NewMeter("eth/req/receipts/out/packets")
+		reqReceiptOutTrafficMeter = metrics.NewMeter("eth/req/receipts/out/traffic")*/
 	miscInPacketsMeter  = metrics.NewRegisteredMeter("les/misc/in/packets", nil)
 	miscInTrafficMeter  = metrics.NewRegisteredMeter("les/misc/in/traffic", nil)
 	miscOutPacketsMeter = metrics.NewRegisteredMeter("les/misc/out/packets", nil)

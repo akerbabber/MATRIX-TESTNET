@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2015 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package backends
 
@@ -24,22 +24,22 @@ import (
 	"sync"
 	"time"
 
-	"github.com/matrix/go-matrix"
-	"github.com/matrix/go-matrix/accounts/abi/bind"
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/common/math"
-	"github.com/matrix/go-matrix/consensus/manash"
-	"github.com/matrix/go-matrix/core"
-	"github.com/matrix/go-matrix/core/bloombits"
-	"github.com/matrix/go-matrix/core/rawdb"
-	"github.com/matrix/go-matrix/core/state"
-	"github.com/matrix/go-matrix/core/types"
-	"github.com/matrix/go-matrix/core/vm"
-	"github.com/matrix/go-matrix/man/filters"
-	"github.com/matrix/go-matrix/mandb"
-	"github.com/matrix/go-matrix/event"
-	"github.com/matrix/go-matrix/params"
-	"github.com/matrix/go-matrix/rpc"
+	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/math"
+	"github.com/ethereum/go-ethereum/consensus/ethash"
+	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/bloombits"
+	"github.com/ethereum/go-ethereum/core/rawdb"
+	"github.com/ethereum/go-ethereum/core/state"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/eth/filters"
+	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/event"
+	"github.com/ethereum/go-ethereum/params"
+	"github.com/ethereum/go-ethereum/rpc"
 )
 
 // This nil assignment ensures compile time that SimulatedBackend implements bind.ContractBackend.
@@ -51,8 +51,8 @@ var errGasEstimationFailed = errors.New("gas required exceeds allowance or alway
 // SimulatedBackend implements bind.ContractBackend, simulating a blockchain in
 // the background. Its main purpose is to allow easily testing contract bindings.
 type SimulatedBackend struct {
-	database   mandb.Database   // In memory database to store our testing data
-	blockchain *core.BlockChain // Matrix blockchain to handle the consensus
+	database   ethdb.Database   // In memory database to store our testing data
+	blockchain *core.BlockChain // Ethereum blockchain to handle the consensus
 
 	mu           sync.Mutex
 	pendingBlock *types.Block   // Currently pending block that will be imported on request
@@ -65,11 +65,11 @@ type SimulatedBackend struct {
 
 // NewSimulatedBackend creates a new binding backend using a simulated blockchain
 // for testing purposes.
-func NewSimulatedBackend(alloc core.GenesisAlloc) *SimulatedBackend {
-	database := mandb.NewMemDatabase()
-	genesis := core.Genesis{Config: params.AllEthashProtocolChanges, Alloc: alloc}
+func NewSimulatedBackend(alloc core.GenesisAlloc, gasLimit uint64) *SimulatedBackend {
+	database := ethdb.NewMemDatabase()
+	genesis := core.Genesis{Config: params.AllEthashProtocolChanges, GasLimit: gasLimit, Alloc: alloc}
 	genesis.MustCommit(database)
-	blockchain, _ := core.NewBlockChain(database, nil, genesis.Config, manash.NewFaker(), vm.Config{})
+	blockchain, _ := core.NewBlockChain(database, nil, genesis.Config, ethash.NewFaker(), vm.Config{}, nil)
 
 	backend := &SimulatedBackend{
 		database:   database,
@@ -102,7 +102,7 @@ func (b *SimulatedBackend) Rollback() {
 }
 
 func (b *SimulatedBackend) rollback() {
-	blocks, _ := core.GenerateChain(b.config, b.blockchain.CurrentBlock(), manash.NewFaker(), b.database, 1, func(int, *core.BlockGen) {})
+	blocks, _ := core.GenerateChain(b.config, b.blockchain.CurrentBlock(), ethash.NewFaker(), b.database, 1, func(int, *core.BlockGen) {})
 	statedb, _ := b.blockchain.State()
 
 	b.pendingBlock = blocks[0]
@@ -173,7 +173,7 @@ func (b *SimulatedBackend) PendingCodeAt(ctx context.Context, contract common.Ad
 }
 
 // CallContract executes a contract call.
-func (b *SimulatedBackend) CallContract(ctx context.Context, call matrix.CallMsg, blockNumber *big.Int) ([]byte, error) {
+func (b *SimulatedBackend) CallContract(ctx context.Context, call ethereum.CallMsg, blockNumber *big.Int) ([]byte, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -189,7 +189,7 @@ func (b *SimulatedBackend) CallContract(ctx context.Context, call matrix.CallMsg
 }
 
 // PendingCallContract executes a contract call on the pending state.
-func (b *SimulatedBackend) PendingCallContract(ctx context.Context, call matrix.CallMsg) ([]byte, error) {
+func (b *SimulatedBackend) PendingCallContract(ctx context.Context, call ethereum.CallMsg) ([]byte, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	defer b.pendingState.RevertToSnapshot(b.pendingState.Snapshot())
@@ -208,14 +208,14 @@ func (b *SimulatedBackend) PendingNonceAt(ctx context.Context, account common.Ad
 }
 
 // SuggestGasPrice implements ContractTransactor.SuggestGasPrice. Since the simulated
-// chain doens't have miners, we just return a gas price of 1 for any call.
+// chain doesn't have miners, we just return a gas price of 1 for any call.
 func (b *SimulatedBackend) SuggestGasPrice(ctx context.Context) (*big.Int, error) {
 	return big.NewInt(1), nil
 }
 
 // EstimateGas executes the requested code against the currently pending block/state and
 // returns the used amount of gas.
-func (b *SimulatedBackend) EstimateGas(ctx context.Context, call matrix.CallMsg) (uint64, error) {
+func (b *SimulatedBackend) EstimateGas(ctx context.Context, call ethereum.CallMsg) (uint64, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -265,7 +265,7 @@ func (b *SimulatedBackend) EstimateGas(ctx context.Context, call matrix.CallMsg)
 
 // callContract implements common code between normal and pending contract calls.
 // state is modified during execution, make sure to copy it if necessary.
-func (b *SimulatedBackend) callContract(ctx context.Context, call matrix.CallMsg, block *types.Block, statedb *state.StateDB) ([]byte, uint64, bool, error) {
+func (b *SimulatedBackend) callContract(ctx context.Context, call ethereum.CallMsg, block *types.Block, statedb *state.StateDB) ([]byte, uint64, bool, error) {
 	// Ensure message is initialized properly.
 	if call.GasPrice == nil {
 		call.GasPrice = big.NewInt(1)
@@ -306,7 +306,7 @@ func (b *SimulatedBackend) SendTransaction(ctx context.Context, tx *types.Transa
 		panic(fmt.Errorf("invalid transaction nonce: got %d, want %d", tx.Nonce(), nonce))
 	}
 
-	blocks, _ := core.GenerateChain(b.config, b.blockchain.CurrentBlock(), manash.NewFaker(), b.database, 1, func(number int, block *core.BlockGen) {
+	blocks, _ := core.GenerateChain(b.config, b.blockchain.CurrentBlock(), ethash.NewFaker(), b.database, 1, func(number int, block *core.BlockGen) {
 		for _, tx := range b.pendingBlock.Transactions() {
 			block.AddTxWithChain(b.blockchain, tx)
 		}
@@ -323,19 +323,25 @@ func (b *SimulatedBackend) SendTransaction(ctx context.Context, tx *types.Transa
 // returning all the results in one batch.
 //
 // TODO(karalabe): Deprecate when the subscription one can return past data too.
-func (b *SimulatedBackend) FilterLogs(ctx context.Context, query matrix.FilterQuery) ([]types.Log, error) {
-	// Initialize unset filter boundaried to run from genesis to chain head
-	from := int64(0)
-	if query.FromBlock != nil {
-		from = query.FromBlock.Int64()
+func (b *SimulatedBackend) FilterLogs(ctx context.Context, query ethereum.FilterQuery) ([]types.Log, error) {
+	var filter *filters.Filter
+	if query.BlockHash != nil {
+		// Block filter requested, construct a single-shot filter
+		filter = filters.NewBlockFilter(&filterBackend{b.database, b.blockchain}, *query.BlockHash, query.Addresses, query.Topics)
+	} else {
+		// Initialize unset filter boundaried to run from genesis to chain head
+		from := int64(0)
+		if query.FromBlock != nil {
+			from = query.FromBlock.Int64()
+		}
+		to := int64(-1)
+		if query.ToBlock != nil {
+			to = query.ToBlock.Int64()
+		}
+		// Construct the range filter
+		filter = filters.NewRangeFilter(&filterBackend{b.database, b.blockchain}, from, to, query.Addresses, query.Topics)
 	}
-	to := int64(-1)
-	if query.ToBlock != nil {
-		to = query.ToBlock.Int64()
-	}
-	// Construct and execute the filter
-	filter := filters.New(&filterBackend{b.database, b.blockchain}, from, to, query.Addresses, query.Topics)
-
+	// Run the filter and return all the logs
 	logs, err := filter.Logs(ctx)
 	if err != nil {
 		return nil, err
@@ -349,7 +355,7 @@ func (b *SimulatedBackend) FilterLogs(ctx context.Context, query matrix.FilterQu
 
 // SubscribeFilterLogs creates a background log filtering operation, returning a
 // subscription immediately, which can be used to stream the found events.
-func (b *SimulatedBackend) SubscribeFilterLogs(ctx context.Context, query matrix.FilterQuery, ch chan<- types.Log) (matrix.Subscription, error) {
+func (b *SimulatedBackend) SubscribeFilterLogs(ctx context.Context, query ethereum.FilterQuery, ch chan<- types.Log) (ethereum.Subscription, error) {
 	// Subscribe to contract events
 	sink := make(chan []*types.Log)
 
@@ -385,7 +391,7 @@ func (b *SimulatedBackend) SubscribeFilterLogs(ctx context.Context, query matrix
 func (b *SimulatedBackend) AdjustTime(adjustment time.Duration) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	blocks, _ := core.GenerateChain(b.config, b.blockchain.CurrentBlock(), manash.NewFaker(), b.database, 1, func(number int, block *core.BlockGen) {
+	blocks, _ := core.GenerateChain(b.config, b.blockchain.CurrentBlock(), ethash.NewFaker(), b.database, 1, func(number int, block *core.BlockGen) {
 		for _, tx := range b.pendingBlock.Transactions() {
 			block.AddTx(tx)
 		}
@@ -401,26 +407,26 @@ func (b *SimulatedBackend) AdjustTime(adjustment time.Duration) error {
 
 // callmsg implements core.Message to allow passing it as a transaction simulator.
 type callmsg struct {
-	matrix.CallMsg
+	ethereum.CallMsg
 }
 
 func (m callmsg) From() common.Address { return m.CallMsg.From }
-func (m callmsg) Nonce() uint64        { return 0 | params.NonceAddOne } //YY
+func (m callmsg) Nonce() uint64        { return 0 }
 func (m callmsg) CheckNonce() bool     { return false }
 func (m callmsg) To() *common.Address  { return m.CallMsg.To }
 func (m callmsg) GasPrice() *big.Int   { return m.CallMsg.GasPrice }
 func (m callmsg) Gas() uint64          { return m.CallMsg.Gas }
 func (m callmsg) Value() *big.Int      { return m.CallMsg.Value }
 func (m callmsg) Data() []byte         { return m.CallMsg.Data }
-//func (m callmsg) Extra() types.Matrix_Extra         { return types.Matrix_Extra{} }
+
 // filterBackend implements filters.Backend to support filtering for logs without
 // taking bloom-bits acceleration structures into account.
 type filterBackend struct {
-	db mandb.Database
+	db ethdb.Database
 	bc *core.BlockChain
 }
 
-func (fb *filterBackend) ChainDb() mandb.Database  { return fb.db }
+func (fb *filterBackend) ChainDb() ethdb.Database  { return fb.db }
 func (fb *filterBackend) EventMux() *event.TypeMux { panic("not supported") }
 
 func (fb *filterBackend) HeaderByNumber(ctx context.Context, block rpc.BlockNumber) (*types.Header, error) {
@@ -428,6 +434,10 @@ func (fb *filterBackend) HeaderByNumber(ctx context.Context, block rpc.BlockNumb
 		return fb.bc.CurrentHeader(), nil
 	}
 	return fb.bc.GetHeaderByNumber(uint64(block.Int64())), nil
+}
+
+func (fb *filterBackend) HeaderByHash(ctx context.Context, hash common.Hash) (*types.Header, error) {
+	return fb.bc.GetHeaderByHash(hash), nil
 }
 
 func (fb *filterBackend) GetReceipts(ctx context.Context, hash common.Hash) (types.Receipts, error) {

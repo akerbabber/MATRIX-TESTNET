@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2015 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package trie
 
@@ -20,9 +20,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/mandb"
-	"gopkg.in/karalabe/cookiejar.v2/collections/prque"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/prque"
+	"github.com/ethereum/go-ethereum/ethdb"
 )
 
 // ErrNotRequested is returned by the trie sync when it's requested to process a
@@ -68,30 +68,30 @@ func newSyncMemBatch() *syncMemBatch {
 	}
 }
 
-// TrieSync is the main state trie synchronisation scheduler, which provides yet
+// Sync is the main state trie synchronisation scheduler, which provides yet
 // unknown trie hashes to retrieve, accepts node data associated with said hashes
 // and reconstructs the trie step by step until all is done.
-type TrieSync struct {
+type Sync struct {
 	database DatabaseReader           // Persistent database to check for existing entries
-	membatch *syncMemBatch            // Memory buffer to avoid frequest database writes
+	membatch *syncMemBatch            // Memory buffer to avoid frequent database writes
 	requests map[common.Hash]*request // Pending requests pertaining to a key hash
 	queue    *prque.Prque             // Priority queue with the pending requests
 }
 
-// NewTrieSync creates a new trie data download scheduler.
-func NewTrieSync(root common.Hash, database DatabaseReader, callback LeafCallback) *TrieSync {
-	ts := &TrieSync{
+// NewSync creates a new trie data download scheduler.
+func NewSync(root common.Hash, database DatabaseReader, callback LeafCallback) *Sync {
+	ts := &Sync{
 		database: database,
 		membatch: newSyncMemBatch(),
 		requests: make(map[common.Hash]*request),
-		queue:    prque.New(),
+		queue:    prque.New(nil),
 	}
 	ts.AddSubTrie(root, 0, common.Hash{}, callback)
 	return ts
 }
 
 // AddSubTrie registers a new trie to the sync code, rooted at the designated parent.
-func (s *TrieSync) AddSubTrie(root common.Hash, depth int, parent common.Hash, callback LeafCallback) {
+func (s *Sync) AddSubTrie(root common.Hash, depth int, parent common.Hash, callback LeafCallback) {
 	// Short circuit if the trie is empty or already known
 	if root == emptyRoot {
 		return
@@ -126,7 +126,7 @@ func (s *TrieSync) AddSubTrie(root common.Hash, depth int, parent common.Hash, c
 // interpreted as a trie node, but rather accepted and stored into the database
 // as is. This method's goal is to support misc state metadata retrievals (e.g.
 // contract code).
-func (s *TrieSync) AddRawEntry(hash common.Hash, depth int, parent common.Hash) {
+func (s *Sync) AddRawEntry(hash common.Hash, depth int, parent common.Hash) {
 	// Short circuit if the entry is empty or already known
 	if hash == emptyState {
 		return
@@ -156,7 +156,7 @@ func (s *TrieSync) AddRawEntry(hash common.Hash, depth int, parent common.Hash) 
 }
 
 // Missing retrieves the known missing nodes from the trie for retrieval.
-func (s *TrieSync) Missing(max int) []common.Hash {
+func (s *Sync) Missing(max int) []common.Hash {
 	requests := []common.Hash{}
 	for !s.queue.Empty() && (max == 0 || len(requests) < max) {
 		requests = append(requests, s.queue.PopItem().(common.Hash))
@@ -167,7 +167,7 @@ func (s *TrieSync) Missing(max int) []common.Hash {
 // Process injects a batch of retrieved trie nodes data, returning if something
 // was committed to the database and also the index of an entry if processing of
 // it failed.
-func (s *TrieSync) Process(results []SyncResult) (bool, int, error) {
+func (s *Sync) Process(results []SyncResult) (bool, int, error) {
 	committed := false
 
 	for i, item := range results {
@@ -213,7 +213,7 @@ func (s *TrieSync) Process(results []SyncResult) (bool, int, error) {
 
 // Commit flushes the data stored in the internal membatch out to persistent
 // storage, returning the number of items written and any occurred error.
-func (s *TrieSync) Commit(dbw mandb.Putter) (int, error) {
+func (s *Sync) Commit(dbw ethdb.Putter) (int, error) {
 	// Dump the membatch into a database dbw
 	for i, key := range s.membatch.order {
 		if err := dbw.Put(key[:], s.membatch.batch[key]); err != nil {
@@ -228,27 +228,27 @@ func (s *TrieSync) Commit(dbw mandb.Putter) (int, error) {
 }
 
 // Pending returns the number of state entries currently pending for download.
-func (s *TrieSync) Pending() int {
+func (s *Sync) Pending() int {
 	return len(s.requests)
 }
 
 // schedule inserts a new state retrieval request into the fetch queue. If there
 // is already a pending request for this node, the new request will be discarded
 // and only a parent reference added to the old one.
-func (s *TrieSync) schedule(req *request) {
+func (s *Sync) schedule(req *request) {
 	// If we're already requesting this node, add a new reference and stop
 	if old, ok := s.requests[req.hash]; ok {
 		old.parents = append(old.parents, req.parents...)
 		return
 	}
 	// Schedule the request for future retrieval
-	s.queue.Push(req.hash, float32(req.depth))
+	s.queue.Push(req.hash, int64(req.depth))
 	s.requests[req.hash] = req
 }
 
 // children retrieves all the missing children of a state trie entry for future
 // retrieval scheduling.
-func (s *TrieSync) children(req *request, object node) ([]*request, error) {
+func (s *Sync) children(req *request, object node) ([]*request, error) {
 	// Gather all the children of the node, irrelevant whether known or not
 	type child struct {
 		node  node
@@ -310,7 +310,7 @@ func (s *TrieSync) children(req *request, object node) ([]*request, error) {
 // commit finalizes a retrieval request and stores it into the membatch. If any
 // of the referencing parent requests complete due to this commit, they are also
 // committed themselves.
-func (s *TrieSync) commit(req *request) (err error) {
+func (s *Sync) commit(req *request) (err error) {
 	// Write the node content to the membatch
 	s.membatch.batch[req.hash] = req.data
 	s.membatch.order = append(s.membatch.order, req.hash)

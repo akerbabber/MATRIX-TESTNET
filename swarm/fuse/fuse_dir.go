@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 // +build linux darwin freebsd
 
@@ -25,6 +25,7 @@ import (
 
 	"bazil.org/fuse"
 	"bazil.org/fuse/fs"
+	"github.com/ethereum/go-ethereum/swarm/log"
 	"golang.org/x/net/context"
 )
 
@@ -49,6 +50,7 @@ type SwarmDir struct {
 }
 
 func NewSwarmDir(fullpath string, minfo *MountInfo) *SwarmDir {
+	log.Debug("swarmfs", "NewSwarmDir", fullpath)
 	newdir := &SwarmDir{
 		inode:       NewInode(),
 		name:        filepath.Base(fullpath),
@@ -62,6 +64,8 @@ func NewSwarmDir(fullpath string, minfo *MountInfo) *SwarmDir {
 }
 
 func (sd *SwarmDir) Attr(ctx context.Context, a *fuse.Attr) error {
+	sd.lock.RLock()
+	defer sd.lock.RUnlock()
 	a.Inode = sd.inode
 	a.Mode = os.ModeDir | 0700
 	a.Uid = uint32(os.Getuid())
@@ -70,7 +74,7 @@ func (sd *SwarmDir) Attr(ctx context.Context, a *fuse.Attr) error {
 }
 
 func (sd *SwarmDir) Lookup(ctx context.Context, req *fuse.LookupRequest, resp *fuse.LookupResponse) (fs.Node, error) {
-
+	log.Debug("swarmfs", "Lookup", req.Name)
 	for _, n := range sd.files {
 		if n.name == req.Name {
 			return n, nil
@@ -85,6 +89,7 @@ func (sd *SwarmDir) Lookup(ctx context.Context, req *fuse.LookupRequest, resp *f
 }
 
 func (sd *SwarmDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
+	log.Debug("swarmfs ReadDirAll")
 	var children []fuse.Dirent
 	for _, file := range sd.files {
 		children = append(children, fuse.Dirent{Inode: file.inode, Type: fuse.DT_File, Name: file.name})
@@ -96,6 +101,7 @@ func (sd *SwarmDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 }
 
 func (sd *SwarmDir) Create(ctx context.Context, req *fuse.CreateRequest, resp *fuse.CreateResponse) (fs.Node, fs.Handle, error) {
+	log.Debug("swarmfs Create", "path", sd.path, "req.Name", req.Name)
 
 	newFile := NewSwarmFile(sd.path, req.Name, sd.mountInfo)
 	newFile.fileSize = 0 // 0 means, file is not in swarm yet and it is just created
@@ -108,6 +114,7 @@ func (sd *SwarmDir) Create(ctx context.Context, req *fuse.CreateRequest, resp *f
 }
 
 func (sd *SwarmDir) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
+	log.Debug("swarmfs Remove", "path", sd.path, "req.Name", req.Name)
 
 	if req.Dir && sd.directories != nil {
 		newDirs := []*SwarmDir{}
@@ -144,13 +151,11 @@ func (sd *SwarmDir) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
 }
 
 func (sd *SwarmDir) Mkdir(ctx context.Context, req *fuse.MkdirRequest) (fs.Node, error) {
-
-	newDir := NewSwarmDir(req.Name, sd.mountInfo)
-
+	log.Debug("swarmfs Mkdir", "path", sd.path, "req.Name", req.Name)
+	newDir := NewSwarmDir(filepath.Join(sd.path, req.Name), sd.mountInfo)
 	sd.lock.Lock()
 	defer sd.lock.Unlock()
 	sd.directories = append(sd.directories, newDir)
 
 	return newDir, nil
-
 }

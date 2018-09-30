@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package debug
 
@@ -24,12 +24,12 @@ import (
 	"os"
 	"runtime"
 
-	"github.com/matrix/go-matrix/log"
-	"github.com/matrix/go-matrix/log/term"
-	"github.com/matrix/go-matrix/metrics"
-	"github.com/matrix/go-matrix/metrics/exp"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/metrics"
+	"github.com/ethereum/go-ethereum/metrics/exp"
 	"github.com/fjl/memsize/memsizeui"
 	colorable "github.com/mattn/go-colorable"
+	"github.com/mattn/go-isatty"
 	"gopkg.in/urfave/cli.v1"
 )
 
@@ -43,7 +43,7 @@ var (
 	}
 	vmoduleFlag = cli.StringFlag{
 		Name:  "vmodule",
-		Usage: "Per-module verbosity: comma-separated list of <pattern>=<level> (e.g. man/*=5,p2p=4)",
+		Usage: "Per-module verbosity: comma-separated list of <pattern>=<level> (e.g. eth/*=5,p2p=4)",
 		Value: "",
 	}
 	backtraceAtFlag = cli.StringFlag{
@@ -101,10 +101,8 @@ var (
 )
 
 func init() {
-	usecolor := term.IsTty(os.Stderr.Fd()) && os.Getenv("TERM") != "dumb"
-
+	usecolor := (isatty.IsTerminal(os.Stderr.Fd()) || isatty.IsCygwinTerminal(os.Stderr.Fd())) && os.Getenv("TERM") != "dumb"
 	output := io.Writer(os.Stderr)
-
 	if usecolor {
 		output = colorable.NewColorableStderr()
 	}
@@ -120,9 +118,8 @@ func Setup(ctx *cli.Context, logdir string) error {
 	if logdir != "" {
 		rfh, err := log.RotatingFileHandler(
 			logdir,
-			1024*1024*1024*2, //262144,
-			/*log.JSONFormatOrderedEx(false, true),*/
-			log.TerminalFormat(false),
+			262144,
+			log.JSONFormatOrderedEx(false, true),
 		)
 		if err != nil {
 			return err

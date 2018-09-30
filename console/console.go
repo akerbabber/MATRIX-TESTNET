@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package console
 
@@ -28,9 +28,9 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/matrix/go-matrix/internal/jsre"
-	"github.com/matrix/go-matrix/internal/web3ext"
-	"github.com/matrix/go-matrix/rpc"
+	"github.com/ethereum/go-ethereum/internal/jsre"
+	"github.com/ethereum/go-ethereum/internal/web3ext"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/mattn/go-colorable"
 	"github.com/peterh/liner"
 	"github.com/robertkrimen/otto"
@@ -53,18 +53,18 @@ const DefaultPrompt = "> "
 type Config struct {
 	DataDir  string       // Data directory to store the console history at
 	DocRoot  string       // Filesystem path from where to load JavaScript files from
-	Client   *rpc.Client  // RPC client to execute Matrix requests through
+	Client   *rpc.Client  // RPC client to execute Ethereum requests through
 	Prompt   string       // Input prompt prefix string (defaults to DefaultPrompt)
 	Prompter UserPrompter // Input prompter to allow interactive user feedback (defaults to TerminalPrompter)
 	Printer  io.Writer    // Output writer to serialize any display strings to (defaults to os.Stdout)
 	Preload  []string     // Absolute paths to JavaScript files to preload
 }
 
-// Console is a JavaScript interpreted runtime environment. It is a fully fleged
+// Console is a JavaScript interpreted runtime environment. It is a fully fledged
 // JavaScript console attached to a running node via an external or in-process RPC
 // client.
 type Console struct {
-	client   *rpc.Client  // RPC client to execute Matrix requests through
+	client   *rpc.Client  // RPC client to execute Ethereum requests through
 	jsre     *jsre.JSRE   // JavaScript runtime environment running the interpreter
 	prompt   string       // Input prompt prefix string
 	prompter UserPrompter // Input prompter to allow interactive user feedback
@@ -73,6 +73,8 @@ type Console struct {
 	printer  io.Writer    // Output writer to serialize any display strings to
 }
 
+// New initializes a JavaScript interpreted runtime environment and sets defaults
+// with the config struct.
 func New(config Config) (*Console, error) {
 	// Handle unset config values gracefully
 	if config.Prompter == nil {
@@ -135,7 +137,7 @@ func (c *Console) init(preload []string) error {
 	if err != nil {
 		return fmt.Errorf("api modules: %v", err)
 	}
-	flatten := "var man = web3.man; var personal = web3.personal; "
+	flatten := "var eth = web3.eth; var personal = web3.personal; "
 	for api := range apis {
 		if api == "web3" {
 			continue // manually mapped or ignore
@@ -155,7 +157,7 @@ func (c *Console) init(preload []string) error {
 		return fmt.Errorf("namespace flattening: %v", err)
 	}
 	// Initialize the global name register (disabled for now)
-	//c.jsre.Run(`var GlobalRegistrar = man.contract(` + registrar.GlobalRegistrarAbi + `);   registrar = GlobalRegistrar.at("` + registrar.GlobalRegistrarAddr + `");`)
+	//c.jsre.Run(`var GlobalRegistrar = eth.contract(` + registrar.GlobalRegistrarAbi + `);   registrar = GlobalRegistrar.at("` + registrar.GlobalRegistrarAddr + `");`)
 
 	// If the console is in interactive mode, instrument password related methods to query the user
 	if c.prompter != nil {
@@ -250,7 +252,7 @@ func (c *Console) AutoCompleteInput(line string, pos int) (string, []string, str
 		return "", nil, ""
 	}
 	// Chunck data to relevant part for autocompletion
-	// E.g. in case of nested lines man.getBalance(man.coinb<tab><tab>
+	// E.g. in case of nested lines eth.getBalance(eth.coinb<tab><tab>
 	start := pos - 1
 	for ; start > 0; start-- {
 		// Skip all methods and namespaces (i.e. including the dot)
@@ -276,8 +278,8 @@ func (c *Console) Welcome() {
 	fmt.Fprintf(c.printer, "Welcome to the Geth JavaScript console!\n\n")
 	c.jsre.Run(`
 		console.log("instance: " + web3.version.node);
-		console.log("coinbase: " + man.coinbase);
-		console.log("at block: " + man.blockNumber + " (" + new Date(1000 * man.getBlock(man.blockNumber).timestamp) + ")");
+		console.log("coinbase: " + eth.coinbase);
+		console.log("at block: " + eth.blockNumber + " (" + new Date(1000 * eth.getBlock(eth.blockNumber).timestamp) + ")");
 		console.log(" datadir: " + admin.datadir);
 	`)
 	// List all the supported modules for the user to call
@@ -312,7 +314,7 @@ func (c *Console) Interactive() {
 		input     = ""                // Current user input
 		scheduler = make(chan string) // Channel to send the next prompt on and receive the input
 	)
-	// Start a goroutine to listen for promt requests and send back inputs
+	// Start a goroutine to listen for prompt requests and send back inputs
 	go func() {
 		for {
 			// Read the next user input

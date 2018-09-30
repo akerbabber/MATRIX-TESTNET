@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package swap
 
@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matrix/go-matrix/common"
+	"github.com/ethereum/go-ethereum/common"
 )
 
 type testInPayment struct {
@@ -34,20 +34,20 @@ type testPromise struct {
 	amount *big.Int
 }
 
-func (self *testInPayment) Receive(promise Promise) (*big.Int, error) {
+func (test *testInPayment) Receive(promise Promise) (*big.Int, error) {
 	p := promise.(*testPromise)
-	self.received = append(self.received, p)
+	test.received = append(test.received, p)
 	return p.amount, nil
 }
 
-func (self *testInPayment) AutoCash(interval time.Duration, limit *big.Int) {
-	self.autocashInterval = interval
-	self.autocashLimit = limit
+func (test *testInPayment) AutoCash(interval time.Duration, limit *big.Int) {
+	test.autocashInterval = interval
+	test.autocashLimit = limit
 }
 
-func (self *testInPayment) Cash() (string, error) { return "", nil }
+func (test *testInPayment) Cash() (string, error) { return "", nil }
 
-func (self *testInPayment) Stop() {}
+func (test *testInPayment) Stop() {}
 
 type testOutPayment struct {
 	deposits             []*big.Int
@@ -56,22 +56,22 @@ type testOutPayment struct {
 	autodepositBuffer    *big.Int
 }
 
-func (self *testOutPayment) Issue(amount *big.Int) (promise Promise, err error) {
+func (test *testOutPayment) Issue(amount *big.Int) (promise Promise, err error) {
 	return &testPromise{amount}, nil
 }
 
-func (self *testOutPayment) Deposit(amount *big.Int) (string, error) {
-	self.deposits = append(self.deposits, amount)
+func (test *testOutPayment) Deposit(amount *big.Int) (string, error) {
+	test.deposits = append(test.deposits, amount)
 	return "", nil
 }
 
-func (self *testOutPayment) AutoDeposit(interval time.Duration, threshold, buffer *big.Int) {
-	self.autodepositInterval = interval
-	self.autodepositThreshold = threshold
-	self.autodepositBuffer = buffer
+func (test *testOutPayment) AutoDeposit(interval time.Duration, threshold, buffer *big.Int) {
+	test.autodepositInterval = interval
+	test.autodepositThreshold = threshold
+	test.autodepositBuffer = buffer
 }
 
-func (self *testOutPayment) Stop() {}
+func (test *testOutPayment) Stop() {}
 
 type testProtocol struct {
 	drop     bool
@@ -79,18 +79,18 @@ type testProtocol struct {
 	promises []*testPromise
 }
 
-func (self *testProtocol) Drop() {
-	self.drop = true
+func (test *testProtocol) Drop() {
+	test.drop = true
 }
 
-func (self *testProtocol) String() string {
+func (test *testProtocol) String() string {
 	return ""
 }
 
-func (self *testProtocol) Pay(amount int, promise Promise) {
+func (test *testProtocol) Pay(amount int, promise Promise) {
 	p := promise.(*testPromise)
-	self.promises = append(self.promises, p)
-	self.amounts = append(self.amounts, amount)
+	test.promises = append(test.promises, p)
+	test.amounts = append(test.amounts, amount)
 }
 
 func TestSwap(t *testing.T) {

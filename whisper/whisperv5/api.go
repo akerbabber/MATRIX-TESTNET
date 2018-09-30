@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package whisperv5
 
@@ -24,12 +24,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/common/hexutil"
-	"github.com/matrix/go-matrix/crypto"
-	"github.com/matrix/go-matrix/log"
-	"github.com/matrix/go-matrix/p2p/discover"
-	"github.com/matrix/go-matrix/rpc"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/p2p/enode"
+	"github.com/ethereum/go-ethereum/rpc"
 )
 
 var (
@@ -96,12 +96,12 @@ func (api *PublicWhisperAPI) SetMinPoW(ctx context.Context, pow float64) (bool, 
 
 // MarkTrustedPeer marks a peer trusted. , which will allow it to send historic (expired) messages.
 // Note: This function is not adding new nodes, the node needs to exists as a peer.
-func (api *PublicWhisperAPI) MarkTrustedPeer(ctx context.Context, enode string) (bool, error) {
-	n, err := discover.ParseNode(enode)
+func (api *PublicWhisperAPI) MarkTrustedPeer(ctx context.Context, url string) (bool, error) {
+	n, err := enode.ParseV4(url)
 	if err != nil {
 		return false, err
 	}
-	return true, api.w.AllowP2PMessagesFromPeer(n.ID[:])
+	return true, api.w.AllowP2PMessagesFromPeer(n.ID().Bytes())
 }
 
 // NewKeyPair generates a new public and private key pair for message decryption and encryption.
@@ -252,8 +252,7 @@ func (api *PublicWhisperAPI) Post(ctx context.Context, req NewMessage) (bool, er
 
 	// Set asymmetric key that is used to encrypt the message
 	if pubKeyGiven {
-		params.Dst = crypto.ToECDSAPub(req.PublicKey)
-		if !ValidatePublicKey(params.Dst) {
+		if params.Dst, err = crypto.UnmarshalPubkey(req.PublicKey); err != nil {
 			return false, ErrInvalidPublicKey
 		}
 	}
@@ -271,11 +270,11 @@ func (api *PublicWhisperAPI) Post(ctx context.Context, req NewMessage) (bool, er
 
 	// send to specific node (skip PoW check)
 	if len(req.TargetPeer) > 0 {
-		n, err := discover.ParseNode(req.TargetPeer)
+		n, err := enode.ParseV4(req.TargetPeer)
 		if err != nil {
 			return false, fmt.Errorf("failed to parse target peer: %s", err)
 		}
-		return true, api.w.SendP2PMessage(n.ID[:], env)
+		return true, api.w.SendP2PMessage(n.ID().Bytes(), env)
 	}
 
 	// ensure that the message PoW meets the node's minimum accepted PoW
@@ -329,8 +328,7 @@ func (api *PublicWhisperAPI) Messages(ctx context.Context, crit Criteria) (*rpc.
 	}
 
 	if len(crit.Sig) > 0 {
-		filter.Src = crypto.ToECDSAPub(crit.Sig)
-		if !ValidatePublicKey(filter.Src) {
+		if filter.Src, err = crypto.UnmarshalPubkey(crit.Sig); err != nil {
 			return nil, ErrInvalidSigningPubKey
 		}
 	}
@@ -513,8 +511,7 @@ func (api *PublicWhisperAPI) NewMessageFilter(req Criteria) (string, error) {
 	}
 
 	if len(req.Sig) > 0 {
-		src = crypto.ToECDSAPub(req.Sig)
-		if !ValidatePublicKey(src) {
+		if src, err = crypto.UnmarshalPubkey(req.Sig); err != nil {
 			return "", ErrInvalidSigningPubKey
 		}
 	}

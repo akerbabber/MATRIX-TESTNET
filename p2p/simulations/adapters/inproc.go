@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package adapters
 
@@ -23,28 +23,40 @@ import (
 	"net"
 	"sync"
 
-	"github.com/matrix/go-matrix/event"
-	"github.com/matrix/go-matrix/log"
-	"github.com/matrix/go-matrix/node"
-	"github.com/matrix/go-matrix/p2p"
-	"github.com/matrix/go-matrix/p2p/discover"
-	"github.com/matrix/go-matrix/rpc"
+	"github.com/ethereum/go-ethereum/event"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/node"
+	"github.com/ethereum/go-ethereum/p2p"
+	"github.com/ethereum/go-ethereum/p2p/enode"
+	"github.com/ethereum/go-ethereum/p2p/simulations/pipes"
+	"github.com/ethereum/go-ethereum/rpc"
 )
 
 // SimAdapter is a NodeAdapter which creates in-memory simulation nodes and
-// connects them using in-memory net.Pipe connections
+// connects them using net.Pipe
 type SimAdapter struct {
+	pipe     func() (net.Conn, net.Conn, error)
 	mtx      sync.RWMutex
-	nodes    map[discover.NodeID]*SimNode
+	nodes    map[enode.ID]*SimNode
 	services map[string]ServiceFunc
 }
 
 // NewSimAdapter creates a SimAdapter which is capable of running in-memory
 // simulation nodes running any of the given services (the services to run on a
 // particular node are passed to the NewNode function in the NodeConfig)
+// the adapter uses a net.Pipe for in-memory simulated network connections
 func NewSimAdapter(services map[string]ServiceFunc) *SimAdapter {
 	return &SimAdapter{
-		nodes:    make(map[discover.NodeID]*SimNode),
+		pipe:     pipes.NetPipe,
+		nodes:    make(map[enode.ID]*SimNode),
+		services: services,
+	}
+}
+
+func NewTCPAdapter(services map[string]ServiceFunc) *SimAdapter {
+	return &SimAdapter{
+		pipe:     pipes.TCPPipe,
+		nodes:    make(map[enode.ID]*SimNode),
 		services: services,
 	}
 }
@@ -81,7 +93,7 @@ func (s *SimAdapter) NewNode(config *NodeConfig) (Node, error) {
 			MaxPeers:        math.MaxInt32,
 			NoDiscovery:     true,
 			Dialer:          s,
-			EnableMsgEvents: true,
+			EnableMsgEvents: config.EnableMsgEvents,
 		},
 		NoUSB:  true,
 		Logger: log.New("node.id", id.String()),
@@ -102,24 +114,31 @@ func (s *SimAdapter) NewNode(config *NodeConfig) (Node, error) {
 }
 
 // Dial implements the p2p.NodeDialer interface by connecting to the node using
-// an in-memory net.Pipe connection
-func (s *SimAdapter) Dial(dest *discover.Node) (conn net.Conn, err error) {
-	node, ok := s.GetNode(dest.ID)
+// an in-memory net.Pipe
+func (s *SimAdapter) Dial(dest *enode.Node) (conn net.Conn, err error) {
+	node, ok := s.GetNode(dest.ID())
 	if !ok {
-		return nil, fmt.Errorf("unknown node: %s", dest.ID)
+		return nil, fmt.Errorf("unknown node: %s", dest.ID())
 	}
 	srv := node.Server()
 	if srv == nil {
-		return nil, fmt.Errorf("node not running: %s", dest.ID)
+		return nil, fmt.Errorf("node not running: %s", dest.ID())
 	}
-	pipe1, pipe2 := net.Pipe()
+	// SimAdapter.pipe is net.Pipe (NewSimAdapter)
+	pipe1, pipe2, err := s.pipe()
+	if err != nil {
+		return nil, err
+	}
+	// this is simulated 'listening'
+	// asynchronously call the dialed destintion node's p2p server
+	// to set up connection on the 'listening' side
 	go srv.SetupConn(pipe1, 0, nil)
 	return pipe2, nil
 }
 
 // DialRPC implements the RPCDialer interface by creating an in-memory RPC
 // client of the given node
-func (s *SimAdapter) DialRPC(id discover.NodeID) (*rpc.Client, error) {
+func (s *SimAdapter) DialRPC(id enode.ID) (*rpc.Client, error) {
 	node, ok := s.GetNode(id)
 	if !ok {
 		return nil, fmt.Errorf("unknown node: %s", id)
@@ -132,7 +151,7 @@ func (s *SimAdapter) DialRPC(id discover.NodeID) (*rpc.Client, error) {
 }
 
 // GetNode returns the node with the given ID if it exists
-func (s *SimAdapter) GetNode(id discover.NodeID) (*SimNode, bool) {
+func (s *SimAdapter) GetNode(id enode.ID) (*SimNode, bool) {
 	s.mtx.RLock()
 	defer s.mtx.RUnlock()
 	node, ok := s.nodes[id]
@@ -140,11 +159,11 @@ func (s *SimAdapter) GetNode(id discover.NodeID) (*SimNode, bool) {
 }
 
 // SimNode is an in-memory simulation node which connects to other nodes using
-// an in-memory net.Pipe connection (see SimAdapter.Dial), running devp2p
-// protocols directly over that pipe
+// net.Pipe (see SimAdapter.Dial), running devp2p protocols directly over that
+// pipe
 type SimNode struct {
 	lock         sync.RWMutex
-	ID           discover.NodeID
+	ID           enode.ID
 	config       *NodeConfig
 	adapter      *SimAdapter
 	node         *node.Node
@@ -158,9 +177,9 @@ func (sn *SimNode) Addr() []byte {
 	return []byte(sn.Node().String())
 }
 
-// Node returns a discover.Node representing the SimNode
-func (sn *SimNode) Node() *discover.Node {
-	return discover.NewNode(sn.ID, net.IP{127, 0, 0, 1}, 30303, 30303)
+// Node returns a node descriptor representing the SimNode
+func (sn *SimNode) Node() *enode.Node {
+	return sn.config.Node()
 }
 
 // Client returns an rpc.Client which can be used to communicate with the
@@ -241,7 +260,7 @@ func (sn *SimNode) Start(snapshots map[string][]byte) error {
 		for _, name := range sn.config.Services {
 			if err := sn.node.Register(newService(name)); err != nil {
 				regErr = err
-				return
+				break
 			}
 		}
 	})
@@ -277,6 +296,13 @@ func (sn *SimNode) Stop() error {
 	return sn.node.Stop()
 }
 
+// Service returns a running service by name
+func (sn *SimNode) Service(name string) node.Service {
+	sn.lock.RLock()
+	defer sn.lock.RUnlock()
+	return sn.running[name]
+}
+
 // Services returns a copy of the underlying services
 func (sn *SimNode) Services() []node.Service {
 	sn.lock.RLock()
@@ -284,6 +310,17 @@ func (sn *SimNode) Services() []node.Service {
 	services := make([]node.Service, 0, len(sn.running))
 	for _, service := range sn.running {
 		services = append(services, service)
+	}
+	return services
+}
+
+// ServiceMap returns a map by names of the underlying services
+func (sn *SimNode) ServiceMap() map[string]node.Service {
+	sn.lock.RLock()
+	defer sn.lock.RUnlock()
+	services := make(map[string]node.Service, len(sn.running))
+	for name, service := range sn.running {
+		services[name] = service
 	}
 	return services
 }
@@ -313,4 +350,18 @@ func (sn *SimNode) NodeInfo() *p2p.NodeInfo {
 		}
 	}
 	return server.NodeInfo()
+}
+
+func setSocketBuffer(conn net.Conn, socketReadBuffer int, socketWriteBuffer int) error {
+	if v, ok := conn.(*net.UnixConn); ok {
+		err := v.SetReadBuffer(socketReadBuffer)
+		if err != nil {
+			return err
+		}
+		err = v.SetWriteBuffer(socketWriteBuffer)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

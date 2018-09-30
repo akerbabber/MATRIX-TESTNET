@@ -1,34 +1,32 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2018 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package rawdb
 
 import (
-	"encoding/binary"
-
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/core/types"
-	"github.com/matrix/go-matrix/log"
-	"github.com/matrix/go-matrix/rlp"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/rlp"
 )
 
 // ReadTxLookupEntry retrieves the positional metadata associated with a transaction
 // hash to allow retrieving the transaction or receipt by hash.
 func ReadTxLookupEntry(db DatabaseReader, hash common.Hash) (common.Hash, uint64, uint64) {
-	data, _ := db.Get(append(txLookupPrefix, hash.Bytes()...))
+	data, _ := db.Get(txLookupKey(hash))
 	if len(data) == 0 {
 		return common.Hash{}, 0, 0
 	}
@@ -53,7 +51,7 @@ func WriteTxLookupEntries(db DatabaseWriter, block *types.Block) {
 		if err != nil {
 			log.Crit("Failed to encode transaction lookup entry", "err", err)
 		}
-		if err := db.Put(append(txLookupPrefix, tx.Hash().Bytes()...), data); err != nil {
+		if err := db.Put(txLookupKey(tx.Hash()), data); err != nil {
 			log.Crit("Failed to store transaction lookup entry", "err", err)
 		}
 	}
@@ -61,7 +59,7 @@ func WriteTxLookupEntries(db DatabaseWriter, block *types.Block) {
 
 // DeleteTxLookupEntry removes all transaction data associated with a hash.
 func DeleteTxLookupEntry(db DatabaseDeleter, hash common.Hash) {
-	db.Delete(append(txLookupPrefix, hash.Bytes()...))
+	db.Delete(txLookupKey(hash))
 }
 
 // ReadTransaction retrieves a specific transaction from the database, along with
@@ -97,23 +95,13 @@ func ReadReceipt(db DatabaseReader, hash common.Hash) (*types.Receipt, common.Ha
 // ReadBloomBits retrieves the compressed bloom bit vector belonging to the given
 // section and bit index from the.
 func ReadBloomBits(db DatabaseReader, bit uint, section uint64, head common.Hash) ([]byte, error) {
-	key := append(append(bloomBitsPrefix, make([]byte, 10)...), head.Bytes()...)
-
-	binary.BigEndian.PutUint16(key[1:], uint16(bit))
-	binary.BigEndian.PutUint64(key[3:], section)
-
-	return db.Get(key)
+	return db.Get(bloomBitsKey(bit, section, head))
 }
 
 // WriteBloomBits stores the compressed bloom bits vector belonging to the given
 // section and bit index.
 func WriteBloomBits(db DatabaseWriter, bit uint, section uint64, head common.Hash, bits []byte) {
-	key := append(append(bloomBitsPrefix, make([]byte, 10)...), head.Bytes()...)
-
-	binary.BigEndian.PutUint16(key[1:], uint16(bit))
-	binary.BigEndian.PutUint64(key[3:], section)
-
-	if err := db.Put(key, bits); err != nil {
+	if err := db.Put(bloomBitsKey(bit, section, head), bits); err != nil {
 		log.Crit("Failed to store bloom bits", "err", err)
 	}
 }

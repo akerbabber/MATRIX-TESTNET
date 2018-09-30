@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package simulations
 
@@ -29,11 +29,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/matrix/go-matrix/event"
-	"github.com/matrix/go-matrix/p2p"
-	"github.com/matrix/go-matrix/p2p/discover"
-	"github.com/matrix/go-matrix/p2p/simulations/adapters"
-	"github.com/matrix/go-matrix/rpc"
+	"github.com/ethereum/go-ethereum/event"
+	"github.com/ethereum/go-ethereum/p2p"
+	"github.com/ethereum/go-ethereum/p2p/enode"
+	"github.com/ethereum/go-ethereum/p2p/simulations/adapters"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/julienschmidt/httprouter"
 	"golang.org/x/net/websocket"
 )
@@ -561,7 +561,8 @@ func (s *Server) LoadSnapshot(w http.ResponseWriter, req *http.Request) {
 
 // CreateNode creates a node in the network using the given configuration
 func (s *Server) CreateNode(w http.ResponseWriter, req *http.Request) {
-	config := adapters.RandomNodeConfig()
+	config := &adapters.NodeConfig{}
+
 	err := json.NewDecoder(req.Body).Decode(config)
 	if err != nil && err != io.EOF {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -708,8 +709,9 @@ func (s *Server) wrapHandler(handler http.HandlerFunc) httprouter.Handle {
 		ctx := context.Background()
 
 		if id := params.ByName("nodeid"); id != "" {
+			var nodeID enode.ID
 			var node *Node
-			if nodeID, err := discover.HexID(id); err == nil {
+			if nodeID.UnmarshalText([]byte(id)) == nil {
 				node = s.network.GetNode(nodeID)
 			} else {
 				node = s.network.GetNodeByName(id)
@@ -722,8 +724,9 @@ func (s *Server) wrapHandler(handler http.HandlerFunc) httprouter.Handle {
 		}
 
 		if id := params.ByName("peerid"); id != "" {
+			var peerID enode.ID
 			var peer *Node
-			if peerID, err := discover.HexID(id); err == nil {
+			if peerID.UnmarshalText([]byte(id)) == nil {
 				peer = s.network.GetNode(peerID)
 			} else {
 				peer = s.network.GetNodeByName(id)

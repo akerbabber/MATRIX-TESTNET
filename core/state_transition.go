@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2014 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package core
 
@@ -21,11 +21,10 @@ import (
 	"math"
 	"math/big"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/core/types"
-	"github.com/matrix/go-matrix/core/vm"
-	"github.com/matrix/go-matrix/log"
-	"github.com/matrix/go-matrix/params"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/params"
 )
 
 var (
@@ -36,7 +35,7 @@ var (
 The State Transitioning Model
 
 A state transition is a change made when a transaction is applied to the current world state
-The state transitioning model does all all the necessary work to work out a valid new state root.
+The state transitioning model does all the necessary work to work out a valid new state root.
 
 1) Nonce handling
 2) Pre pay gas
@@ -74,7 +73,6 @@ type Message interface {
 	Nonce() uint64
 	CheckNonce() bool
 	Data() []byte
-	Extra() types.Matrix_Extra //YY
 }
 
 // IntrinsicGas computes the 'intrinsic gas' for a message with the given data.
@@ -180,8 +178,8 @@ func (st *StateTransition) preCheck() error {
 }
 
 // TransitionDb will transition the state by applying the current message and
-// returning the result including the the used gas. It returns an error if it
-// failed. An error indicates a consensus issue.
+// returning the result including the used gas. It returns an error if failed.
+// An error indicates a consensus issue.
 func (st *StateTransition) TransitionDb() (ret []byte, usedGas uint64, failed bool, err error) {
 	if err = st.preCheck(); err != nil {
 		return
@@ -196,22 +194,6 @@ func (st *StateTransition) TransitionDb() (ret []byte, usedGas uint64, failed bo
 	if err != nil {
 		return nil, 0, false, err
 	}
-	//YY
-	tmpExtra := msg.Extra()
-	if (&tmpExtra) != nil {
-		if uint64(len(tmpExtra.ExtraTo)) > params.TxCount-1 { //减1是为了和txpool中的验证统一，因为还要算上外层的那笔交易
-			return nil, 0, false, ErrTXCountOverflow
-		}
-		for _, ex := range tmpExtra.ExtraTo {
-			contractCreation = ex.Recipient == nil
-			tmpgas, tmperr := IntrinsicGas(ex.Payload, contractCreation, homestead)
-			if tmperr != nil {
-				return nil, 0, false, err
-			}
-			//0.7+0.3*pow(0.9,(num-1))
-			gas += tmpgas
-		}
-	}
 	if err = st.useGas(gas); err != nil {
 		return nil, 0, false, err
 	}
@@ -223,7 +205,6 @@ func (st *StateTransition) TransitionDb() (ret []byte, usedGas uint64, failed bo
 		// error.
 		vmerr error
 	)
-	contractCreation = msg.To() == nil //YY
 	if contractCreation {
 		ret, _, st.gas, vmerr = evm.Create(sender, st.data, st.gas, st.value)
 	} else {
@@ -231,23 +212,6 @@ func (st *StateTransition) TransitionDb() (ret []byte, usedGas uint64, failed bo
 		st.state.SetNonce(msg.From(), st.state.GetNonce(sender.Address())+1)
 		ret, st.gas, vmerr = evm.Call(sender, st.to(), st.data, st.gas, st.value)
 	}
-	//YY=========begin===============
-	if vmerr == nil && (&tmpExtra) != nil {
-		for _, ex := range tmpExtra.ExtraTo {
-			contractCreation = ex.Recipient == nil
-			if contractCreation {
-				//ret, _, st.gas, vmerr = evm.Create(sender, st.data, st.gas, st.value)
-				ret, _, st.gas, vmerr = evm.Create(sender, ex.Payload, st.gas, ex.Amount)
-			} else {
-				// Increment the nonce for the next transaction
-				ret, st.gas, vmerr = evm.Call(sender, *ex.Recipient, ex.Payload, st.gas, ex.Amount)
-			}
-			if vmerr != nil {
-				break
-			}
-		}
-	}
-	//==============end============
 	if vmerr != nil {
 		log.Debug("VM returned with error", "err", vmerr)
 		// The only possible consensus-error would be if there wasn't
@@ -257,11 +221,8 @@ func (st *StateTransition) TransitionDb() (ret []byte, usedGas uint64, failed bo
 			return nil, 0, false, vmerr
 		}
 	}
-
 	st.refundGas()
-
-	//hezi;2018.9.6;此处不给矿工奖励
-	//st.state.AddBalance(st.evm.Coinbase, new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), st.gasPrice))
+	st.state.AddBalance(st.evm.Coinbase, new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), st.gasPrice))
 
 	return ret, st.gasUsed(), vmerr != nil, err
 }

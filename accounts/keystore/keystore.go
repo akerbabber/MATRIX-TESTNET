@@ -1,23 +1,23 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 // Package keystore implements encrypted storage of secp256k1 private keys.
 //
 // Keys are stored as encrypted JSON files according to the Web3 Secret Storage specification.
-// See https://github.com/matrix/wiki/wiki/Web3-Secret-Storage-Definition for more information.
+// See https://github.com/ethereum/wiki/wiki/Web3-Secret-Storage-Definition for more information.
 package keystore
 
 import (
@@ -30,15 +30,14 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"sync"
 	"time"
 
-	"github.com/matrix/go-matrix/accounts"
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/core/types"
-	"github.com/matrix/go-matrix/crypto"
-	"github.com/matrix/go-matrix/event"
-
-	"sync"
+	"github.com/ethereum/go-ethereum/accounts"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/event"
 )
 
 var (
@@ -51,7 +50,7 @@ var (
 var KeyStoreType = reflect.TypeOf(&KeyStore{})
 
 // KeyStoreScheme is the protocol scheme prefixing account and wallet URLs.
-var KeyStoreScheme = "keystore"
+const KeyStoreScheme = "keystore"
 
 // Maximum time between wallet refreshes (if filesystem notifications don't work).
 const walletRefreshCycle = 3 * time.Second
@@ -69,10 +68,6 @@ type KeyStore struct {
 	updating    bool                    // Whether the event notification loop is running
 
 	mu sync.RWMutex
-
-	//todo hyk temp data
-	muTemp     sync.RWMutex
-	tempPrvKey map[common.Address]*Key
 }
 
 type unlocked struct {
@@ -83,7 +78,7 @@ type unlocked struct {
 // NewKeyStore creates a keystore for the given directory.
 func NewKeyStore(keydir string, scryptN, scryptP int) *KeyStore {
 	keydir, _ = filepath.Abs(keydir)
-	ks := &KeyStore{storage: &keyStorePassphrase{keydir, scryptN, scryptP}}
+	ks := &KeyStore{storage: &keyStorePassphrase{keydir, scryptN, scryptP, false}}
 	ks.init(keydir)
 	return ks
 }
@@ -118,8 +113,6 @@ func (ks *KeyStore) init(keydir string) {
 	for i := 0; i < len(accs); i++ {
 		ks.wallets[i] = &keystoreWallet{account: accs[i], keystore: ks}
 	}
-
-	ks.tempPrvKey = make(map[common.Address]*Key)
 }
 
 // Wallets implements accounts.Backend, returning all single-key wallets from the
@@ -306,72 +299,17 @@ func (ks *KeyStore) SignHashWithPassphrase(a accounts.Account, passphrase string
 // SignTxWithPassphrase signs the transaction if the private key matching the
 // given address can be decrypted with the given passphrase.
 func (ks *KeyStore) SignTxWithPassphrase(a accounts.Account, passphrase string, tx *types.Transaction, chainID *big.Int) (*types.Transaction, error) {
-	//todo 暂时修改为使用缓存方式
-	key := ks.findSignKeyInTemp(a)
-	if key == nil {
-		ks.mu.Lock()
-		var err error
-		_, key, err = ks.getDecryptedKey(a, passphrase)
-		if err != nil {
-			ks.mu.Unlock()
-			return nil, err
-		}
-		ks.tempPrvKey[a.Address] = key
-		ks.mu.Unlock()
-	}
-
-	/*_, key, err := ks.getDecryptedKey(a, passphrase)
+	_, key, err := ks.getDecryptedKey(a, passphrase)
 	if err != nil {
 		return nil, err
 	}
-	defer zeroKey(key.PrivateKey)*/
+	defer zeroKey(key.PrivateKey)
 
 	// Depending on the presence of the chain ID, sign with EIP155 or homestead
 	if chainID != nil {
 		return types.SignTx(tx, types.NewEIP155Signer(chainID), key.PrivateKey)
 	}
 	return types.SignTx(tx, types.HomesteadSigner{}, key.PrivateKey)
-}
-
-func (ks *KeyStore) SignHashValidate(a accounts.Account, hash []byte, validate bool) (signature []byte, err error) {
-	// Look up the key to sign with and abort if it cannot be found
-	ks.mu.RLock()
-	defer ks.mu.RUnlock()
-
-	unlockedKey, found := ks.unlocked[a.Address]
-	if !found {
-		return nil, ErrLocked
-	}
-	// Sign the hash using plain ECDSA operations
-	return crypto.SignWithValidate(hash, validate, unlockedKey.PrivateKey)
-}
-
-func (ks *KeyStore) SignHashValidateWithPass(a accounts.Account, passphrase string, hash []byte, validate bool) (signature []byte, err error) {
-	key := ks.findSignKeyInTemp(a)
-	if key == nil {
-		ks.mu.Lock()
-		_, key, err = ks.getDecryptedKey(a, passphrase)
-		if err != nil {
-			ks.mu.Unlock()
-			return nil, err
-		}
-		ks.tempPrvKey[a.Address] = key
-		ks.mu.Unlock()
-	}
-
-	return crypto.SignWithValidate(hash, validate, key.PrivateKey)
-}
-
-func (ks *KeyStore) findSignKeyInTemp(a accounts.Account) *Key {
-	ks.mu.RLock()
-	defer ks.mu.RUnlock()
-
-	key, OK := ks.tempPrvKey[a.Address]
-	if !OK {
-		return nil
-	}
-
-	return key
 }
 
 // Unlock unlocks the given account indefinitely.
@@ -534,7 +472,7 @@ func (ks *KeyStore) Update(a accounts.Account, passphrase, newPassphrase string)
 	return ks.storage.StoreKey(a.URL.Path, key, newPassphrase)
 }
 
-// ImportPreSaleKey decrypts the given Matrix presale wallet and stores
+// ImportPreSaleKey decrypts the given Ethereum presale wallet and stores
 // a key file in the key directory. The key file is encrypted with the same passphrase.
 func (ks *KeyStore) ImportPreSaleKey(keyJSON []byte, passphrase string) (accounts.Account, error) {
 	a, _, err := importPreSaleKey(ks.storage, keyJSON, passphrase)

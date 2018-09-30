@@ -1,18 +1,3 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
-//
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
-//
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 // Copyright (c) 2012, Suryandaru Triandana <syndtr@gmail.com>
 // All rights reserved.
 //
@@ -82,13 +67,25 @@ func isErrInvalid(err error) bool {
 	if err == os.ErrInvalid {
 		return true
 	}
+	// Go < 1.8
 	if syserr, ok := err.(*os.SyscallError); ok && syserr.Err == syscall.EINVAL {
+		return true
+	}
+	// Go >= 1.8 returns *os.PathError instead
+	if patherr, ok := err.(*os.PathError); ok && patherr.Err == syscall.EINVAL {
 		return true
 	}
 	return false
 }
 
 func syncDir(name string) error {
+	// As per fsync manpage, Linux seems to expect fsync on directory, however
+	// some system don't support this, so we will ignore syscall.EINVAL.
+	//
+	// From fsync(2):
+	//   Calling fsync() does not necessarily ensure that the entry in the
+	//   directory containing the file has also reached disk. For that an
+	//   explicit fsync() on a file descriptor for the directory is also needed.
 	f, err := os.Open(name)
 	if err != nil {
 		return err

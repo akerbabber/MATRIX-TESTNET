@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2018 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 // Package rawdb contains a collection of low level database accessors.
 package rawdb
@@ -20,8 +20,8 @@ package rawdb
 import (
 	"encoding/binary"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/metrics"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/metrics"
 )
 
 // The fields below define the low level database schema prefixing.
@@ -54,7 +54,7 @@ var (
 	bloomBitsPrefix = []byte("B") // bloomBitsPrefix + bit (uint16 big endian) + section (uint64 big endian) + hash -> bloom bits
 
 	preimagePrefix = []byte("secure-key-")      // preimagePrefix + hash -> preimage
-	configPrefix   = []byte("matrix-config-") // config prefix for the db
+	configPrefix   = []byte("ethereum-config-") // config prefix for the db
 
 	// Chain index prefixes (use `i` + single byte to avoid mixing data types).
 	BloomBitsIndexPrefix = []byte("iB") // BloomBitsIndexPrefix is the data table of a chain indexer to track its progress
@@ -76,4 +76,59 @@ func encodeBlockNumber(number uint64) []byte {
 	enc := make([]byte, 8)
 	binary.BigEndian.PutUint64(enc, number)
 	return enc
+}
+
+// headerKey = headerPrefix + num (uint64 big endian) + hash
+func headerKey(number uint64, hash common.Hash) []byte {
+	return append(append(headerPrefix, encodeBlockNumber(number)...), hash.Bytes()...)
+}
+
+// headerTDKey = headerPrefix + num (uint64 big endian) + hash + headerTDSuffix
+func headerTDKey(number uint64, hash common.Hash) []byte {
+	return append(headerKey(number, hash), headerTDSuffix...)
+}
+
+// headerHashKey = headerPrefix + num (uint64 big endian) + headerHashSuffix
+func headerHashKey(number uint64) []byte {
+	return append(append(headerPrefix, encodeBlockNumber(number)...), headerHashSuffix...)
+}
+
+// headerNumberKey = headerNumberPrefix + hash
+func headerNumberKey(hash common.Hash) []byte {
+	return append(headerNumberPrefix, hash.Bytes()...)
+}
+
+// blockBodyKey = blockBodyPrefix + num (uint64 big endian) + hash
+func blockBodyKey(number uint64, hash common.Hash) []byte {
+	return append(append(blockBodyPrefix, encodeBlockNumber(number)...), hash.Bytes()...)
+}
+
+// blockReceiptsKey = blockReceiptsPrefix + num (uint64 big endian) + hash
+func blockReceiptsKey(number uint64, hash common.Hash) []byte {
+	return append(append(blockReceiptsPrefix, encodeBlockNumber(number)...), hash.Bytes()...)
+}
+
+// txLookupKey = txLookupPrefix + hash
+func txLookupKey(hash common.Hash) []byte {
+	return append(txLookupPrefix, hash.Bytes()...)
+}
+
+// bloomBitsKey = bloomBitsPrefix + bit (uint16 big endian) + section (uint64 big endian) + hash
+func bloomBitsKey(bit uint, section uint64, hash common.Hash) []byte {
+	key := append(append(bloomBitsPrefix, make([]byte, 10)...), hash.Bytes()...)
+
+	binary.BigEndian.PutUint16(key[1:], uint16(bit))
+	binary.BigEndian.PutUint64(key[3:], section)
+
+	return key
+}
+
+// preimageKey = preimagePrefix + hash
+func preimageKey(hash common.Hash) []byte {
+	return append(preimagePrefix, hash.Bytes()...)
+}
+
+// configKey = configPrefix + hash
+func configKey(hash common.Hash) []byte {
+	return append(configPrefix, hash.Bytes()...)
 }

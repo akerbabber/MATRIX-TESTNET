@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 // Package discv5 implements the RLPx v5 Topic Discovery Protocol.
 //
@@ -29,7 +29,7 @@ import (
 	"net"
 	"sort"
 
-	"github.com/matrix/go-matrix/common"
+	"github.com/ethereum/go-ethereum/common"
 )
 
 const (
@@ -81,7 +81,7 @@ func (tab *Table) chooseBucketRefreshTarget() common.Hash {
 	if printTable {
 		fmt.Println()
 	}
-	for i, b := range tab.buckets {
+	for i, b := range &tab.buckets {
 		entries += len(b.entries)
 		if printTable {
 			for _, e := range b.entries {
@@ -93,7 +93,7 @@ func (tab *Table) chooseBucketRefreshTarget() common.Hash {
 	prefix := binary.BigEndian.Uint64(tab.self.sha[0:8])
 	dist := ^uint64(0)
 	entry := int(randUint(uint32(entries + 1)))
-	for _, b := range tab.buckets {
+	for _, b := range &tab.buckets {
 		if entry < len(b.entries) {
 			n := b.entries[entry]
 			dist = binary.BigEndian.Uint64(n.sha[0:8]) ^ prefix
@@ -121,9 +121,9 @@ func (tab *Table) readRandomNodes(buf []*Node) (n int) {
 	// TODO: tree-based buckets would help here
 	// Find all non-empty buckets and get a fresh slice of their entries.
 	var buckets [][]*Node
-	for _, b := range tab.buckets {
+	for _, b := range &tab.buckets {
 		if len(b.entries) > 0 {
-			buckets = append(buckets, b.entries[:])
+			buckets = append(buckets, b.entries)
 		}
 	}
 	if len(buckets) == 0 {
@@ -175,7 +175,7 @@ func (tab *Table) closest(target common.Hash, nresults int) *nodesByDistance {
 	// obviously correct. I believe that tree-based buckets would make
 	// this easier to implement efficiently.
 	close := &nodesByDistance{target: target}
-	for _, b := range tab.buckets {
+	for _, b := range &tab.buckets {
 		for _, n := range b.entries {
 			close.push(n, nresults)
 		}

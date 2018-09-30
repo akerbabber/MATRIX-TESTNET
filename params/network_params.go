@@ -1,26 +1,54 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package params
 
 // These are network parameters that need to be constant between clients, but
-// aren't necesarilly consensus related.
+// aren't necessarily consensus related.
 
 const (
 	// BloomBitsBlocks is the number of blocks a single bloom bit section vector
-	// contains.
+	// contains on the server side.
 	BloomBitsBlocks uint64 = 4096
+
+	// BloomBitsBlocksClient is the number of blocks a single bloom bit section vector
+	// contains on the light client side
+	BloomBitsBlocksClient uint64 = 32768
+
+	// BloomConfirms is the number of confirmation blocks before a bloom section is
+	// considered probably final and its rotated bits are calculated.
+	BloomConfirms = 256
+
+	// CHTFrequencyClient is the block frequency for creating CHTs on the client side.
+	CHTFrequencyClient = 32768
+
+	// CHTFrequencyServer is the block frequency for creating CHTs on the server side.
+	// Eventually this can be merged back with the client version, but that requires a
+	// full database upgrade, so that should be left for a suitable moment.
+	CHTFrequencyServer = 4096
+
+	// BloomTrieFrequency is the block frequency for creating BloomTrie on both
+	// server/client sides.
+	BloomTrieFrequency = 32768
+
+	// HelperTrieConfirmations is the number of confirmations before a client is expected
+	// to have the given HelperTrie available.
+	HelperTrieConfirmations = 2048
+
+	// HelperTrieProcessConfirmations is the number of confirmations before a HelperTrie
+	// is generated
+	HelperTrieProcessConfirmations = 256
 )

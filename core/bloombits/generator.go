@@ -1,37 +1,43 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package bloombits
 
 import (
 	"errors"
 
-	"github.com/matrix/go-matrix/core/types"
+	"github.com/ethereum/go-ethereum/core/types"
 )
 
-// errSectionOutOfBounds is returned if the user tried to add more bloom filters
-// to the batch than available space, or if tries to retrieve above the capacity,
-var errSectionOutOfBounds = errors.New("section out of bounds")
+var (
+	// errSectionOutOfBounds is returned if the user tried to add more bloom filters
+	// to the batch than available space, or if tries to retrieve above the capacity.
+	errSectionOutOfBounds = errors.New("section out of bounds")
+
+	// errBloomBitOutOfBounds is returned if the user tried to retrieve specified
+	// bit bloom above the capacity.
+	errBloomBitOutOfBounds = errors.New("bloom bit out of bounds")
+)
 
 // Generator takes a number of bloom filters and generates the rotated bloom bits
 // to be used for batched filtering.
 type Generator struct {
 	blooms   [types.BloomBitLength][]byte // Rotated blooms for per-bit matching
 	sections uint                         // Number of sections to batch together
-	nextBit  uint                         // Next bit to set when adding a bloom
+	nextSec  uint                         // Next section to set when adding a bloom
 }
 
 // NewGenerator creates a rotated bloom generator that can iteratively fill a
@@ -51,15 +57,15 @@ func NewGenerator(sections uint) (*Generator, error) {
 // in memory accordingly.
 func (b *Generator) AddBloom(index uint, bloom types.Bloom) error {
 	// Make sure we're not adding more bloom filters than our capacity
-	if b.nextBit >= b.sections {
+	if b.nextSec >= b.sections {
 		return errSectionOutOfBounds
 	}
-	if b.nextBit != index {
+	if b.nextSec != index {
 		return errors.New("bloom filter with unexpected index")
 	}
 	// Rotate the bloom and insert into our collection
-	byteIndex := b.nextBit / 8
-	bitMask := byte(1) << byte(7-b.nextBit%8)
+	byteIndex := b.nextSec / 8
+	bitMask := byte(1) << byte(7-b.nextSec%8)
 
 	for i := 0; i < types.BloomBitLength; i++ {
 		bloomByteIndex := types.BloomByteLength - 1 - i/8
@@ -69,7 +75,7 @@ func (b *Generator) AddBloom(index uint, bloom types.Bloom) error {
 			b.blooms[i][byteIndex] |= bitMask
 		}
 	}
-	b.nextBit++
+	b.nextSec++
 
 	return nil
 }
@@ -77,11 +83,11 @@ func (b *Generator) AddBloom(index uint, bloom types.Bloom) error {
 // Bitset returns the bit vector belonging to the given bit index after all
 // blooms have been added.
 func (b *Generator) Bitset(idx uint) ([]byte, error) {
-	if b.nextBit != b.sections {
+	if b.nextSec != b.sections {
 		return nil, errors.New("bloom not fully generated yet")
 	}
-	if idx >= b.sections {
-		return nil, errSectionOutOfBounds
+	if idx >= types.BloomBitLength {
+		return nil, errBloomBitOutOfBounds
 	}
 	return b.blooms[idx], nil
 }

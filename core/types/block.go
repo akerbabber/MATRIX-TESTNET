@@ -1,20 +1,20 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2014 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
-// Package types contains data types related to Matrix consensus.
+// Package types contains data types related to Ethereum consensus.
 package types
 
 import (
@@ -26,12 +26,10 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/common/hexutil"
-	"github.com/matrix/go-matrix/crypto"
-	"github.com/matrix/go-matrix/crypto/sha3"
-	"github.com/matrix/go-matrix/log"
-	"github.com/matrix/go-matrix/rlp"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/crypto/sha3"
+	"github.com/ethereum/go-ethereum/rlp"
 )
 
 var (
@@ -68,29 +66,23 @@ func (n *BlockNonce) UnmarshalText(input []byte) error {
 
 //go:generate gencodec -type Header -field-override headerMarshaling -out gen_header_json.go
 
-// Header represents a block header in the Matrix blockchain.
+// Header represents a block header in the Ethereum blockchain.
 type Header struct {
-	ParentHash  common.Hash        `json:"parentHash"       gencodec:"required"`
-	UncleHash   common.Hash        `json:"sha3Uncles"       gencodec:"required"`
-	Leader      common.Address     `json:"leader"            gencodec:"required"`
-	Coinbase    common.Address     `json:"miner"            gencodec:"required"`
-	Root        common.Hash        `json:"stateRoot"        gencodec:"required"`
-	TxHash      common.Hash        `json:"transactionsRoot" gencodec:"required"`
-	ReceiptHash common.Hash        `json:"receiptsRoot"     gencodec:"required"`
-	Bloom       Bloom              `json:"logsBloom"        gencodec:"required"`
-	Difficulty  *big.Int           `json:"difficulty"       gencodec:"required"`
-	Number      *big.Int           `json:"number"           gencodec:"required"`
-	GasLimit    uint64             `json:"gasLimit"         gencodec:"required"`
-	GasUsed     uint64             `json:"gasUsed"          gencodec:"required"`
-	Time        *big.Int           `json:"timestamp"        gencodec:"required"`
-	Elect       []common.Elect     `json:"elect"        gencodec:"required"`
-	NetTopology common.NetTopology `json:"nettopology"        gencodec:"required"`
-	Signatures  []common.Signature `json:"signatures "        gencodec:"required"`
-
-	Extra     []byte      `json:"extraData"        gencodec:"required"`
-	MixDigest common.Hash `json:"mixHash"          gencodec:"required"`
-	Nonce     BlockNonce  `json:"nonce"            gencodec:"required"`
-	Version   []byte      `json:"version"              gencodec:"required"`
+	ParentHash  common.Hash    `json:"parentHash"       gencodec:"required"`
+	UncleHash   common.Hash    `json:"sha3Uncles"       gencodec:"required"`
+	Coinbase    common.Address `json:"miner"            gencodec:"required"`
+	Root        common.Hash    `json:"stateRoot"        gencodec:"required"`
+	TxHash      common.Hash    `json:"transactionsRoot" gencodec:"required"`
+	ReceiptHash common.Hash    `json:"receiptsRoot"     gencodec:"required"`
+	Bloom       Bloom          `json:"logsBloom"        gencodec:"required"`
+	Difficulty  *big.Int       `json:"difficulty"       gencodec:"required"`
+	Number      *big.Int       `json:"number"           gencodec:"required"`
+	GasLimit    uint64         `json:"gasLimit"         gencodec:"required"`
+	GasUsed     uint64         `json:"gasUsed"          gencodec:"required"`
+	Time        *big.Int       `json:"timestamp"        gencodec:"required"`
+	Extra       []byte         `json:"extraData"        gencodec:"required"`
+	MixDigest   common.Hash    `json:"mixHash"          gencodec:"required"`
+	Nonce       BlockNonce     `json:"nonce"            gencodec:"required"`
 }
 
 // field type overrides for gencodec
@@ -110,92 +102,13 @@ func (h *Header) Hash() common.Hash {
 	return rlpHash(h)
 }
 
-// HashNoNonce returns the hash which is used as input for the proof-of-work search.
-func (h *Header) HashNoNonce() common.Hash {
-	return rlpHash([]interface{}{
-		h.ParentHash,
-		h.UncleHash,
-		h.Leader,
-		h.Root,
-		h.TxHash,
-		h.ReceiptHash,
-		h.Bloom,
-		h.Difficulty,
-		h.Number,
-		h.GasLimit,
-		h.GasUsed,
-		h.Time,
-		h.Elect,
-		h.NetTopology,
-		h.Signatures,
-		h.Extra,
-		h.Version,
-	})
-}
-
-func (h *Header) HashNoSignsAndNonce() common.Hash {
-	return rlpHash([]interface{}{
-		h.ParentHash,
-		h.UncleHash,
-		h.Leader,
-		h.Root,
-		h.TxHash,
-		h.ReceiptHash,
-		h.Bloom,
-		h.Difficulty,
-		h.Number,
-		h.GasLimit,
-		h.GasUsed,
-		h.Time,
-		h.Elect,
-		h.NetTopology,
-		h.Extra,
-		h.Version,
-	})
-}
-
 // Size returns the approximate memory used by all internal contents. It is used
 // to approximate and limit the memory consumption of various caches.
 func (h *Header) Size() common.StorageSize {
 	return common.StorageSize(unsafe.Sizeof(*h)) + common.StorageSize(len(h.Extra)+(h.Difficulty.BitLen()+h.Number.BitLen()+h.Time.BitLen())/8)
 }
 
-func (h *Header) SignAccounts() map[common.Signature]common.Address {
-	accounts := make(map[common.Signature]common.Address)
-	hash := h.HashNoSignsAndNonce().Bytes()
-	for i := 0; i < len(h.Signatures); i++ {
-		sign := h.Signatures[i]
-		signAccount, validate, err := crypto.VerifySignWithValidate(hash, sign.Bytes())
-		if err != nil {
-			log.WARN("header SignAccounts", "VerifySignWithValidate err", err, "sign", sign)
-			continue
-		}
-
-		if !validate {
-			log.WARN("header SignAccounts", "VerifySignWithValidate illegal", validate, "sign", sign)
-			continue
-		}
-		accounts[sign] = signAccount
-	}
-	return accounts
-}
-
-func (h *Header) IsBroadcastHeader() bool {
-	return common.IsBroadcastNumber(h.Number.Uint64())
-}
-
-func (h *Header) IsReElectionHeader() bool {
-	return common.IsReElectionNumber(h.Number.Uint64())
-}
-
 func rlpHash(x interface{}) (h common.Hash) {
-	hw := sha3.NewKeccak256()
-	rlp.Encode(hw, x)
-	hw.Sum(h[:0])
-	return h
-}
-
-func RlpHash(x interface{}) (h common.Hash) {
 	hw := sha3.NewKeccak256()
 	rlp.Encode(hw, x)
 	hw.Sum(h[:0])
@@ -209,7 +122,7 @@ type Body struct {
 	Uncles       []*Header
 }
 
-// Block represents an entire block in the Matrix blockchain.
+// Block represents an entire block in the Ethereum blockchain.
 type Block struct {
 	header       *Header
 	uncles       []*Header
@@ -223,7 +136,7 @@ type Block struct {
 	// of the chain up to and including the block.
 	td *big.Int
 
-	// These fields are used by package man to track
+	// These fields are used by package eth to track
 	// inter-peer block relay.
 	ReceivedAt   time.Time
 	ReceivedFrom interface{}
@@ -236,20 +149,20 @@ func (b *Block) DeprecatedTd() *big.Int {
 	return b.td
 }
 
-// [deprecated by man/63]
+// [deprecated by eth/63]
 // StorageBlock defines the RLP encoding of a Block stored in the
 // state database. The StorageBlock encoding contains fields that
 // would otherwise need to be recomputed.
 type StorageBlock Block
 
-// "external" block encoding. used for man protocol, etc.
+// "external" block encoding. used for eth protocol, etc.
 type extblock struct {
 	Header *Header
 	Txs    []*Transaction
 	Uncles []*Header
 }
 
-// [deprecated by man/63]
+// [deprecated by eth/63]
 // "storage" block encoding. used for database.
 type storageblock struct {
 	Header *Header
@@ -304,22 +217,6 @@ func NewBlockWithHeader(header *Header) *Block {
 	return &Block{header: CopyHeader(header)}
 }
 
-// NewBlockWithHeader creates a block with the given header data. The
-// header data is copied, changes to header and to the field values
-// will not affect the block.
-func NewBlockWithTxs(header *Header, txs []*Transaction) *Block {
-	b := &Block{header: CopyHeader(header)}
-	if len(txs) == 0 {
-		b.header.TxHash = EmptyRootHash
-	} else {
-		b.header.TxHash = DeriveSha(Transactions(txs))
-		b.transactions = make(Transactions, len(txs))
-		copy(b.transactions, txs)
-	}
-
-	return b
-}
-
 // CopyHeader creates a deep copy of a block header to prevent side effects from
 // modifying a header variable.
 func CopyHeader(h *Header) *Header {
@@ -337,28 +234,10 @@ func CopyHeader(h *Header) *Header {
 		cpy.Extra = make([]byte, len(h.Extra))
 		copy(cpy.Extra, h.Extra)
 	}
-	if len(h.Elect) > 0 {
-		cpy.Elect = make([]common.Elect, len(h.Elect))
-		copy(cpy.Elect, h.Elect)
-	}
-	if len(h.NetTopology.NetTopologyData) > 0 {
-		cpy.NetTopology.NetTopologyData = make([]common.NetTopologyData, len(h.NetTopology.NetTopologyData))
-		copy(cpy.NetTopology.NetTopologyData, h.NetTopology.NetTopologyData)
-		cpy.NetTopology.Type = h.NetTopology.Type
-	}
-	if len(h.Signatures) > 0 {
-		cpy.Signatures = make([]common.Signature, len(h.Signatures))
-		copy(cpy.Signatures, h.Signatures)
-	}
-
-	if len(h.Version) > 0 {
-		cpy.Version = make([]byte, len(h.Version))
-		copy(cpy.Version, h.Version)
-	}
 	return &cpy
 }
 
-// DecodeRLP decodes the Matrix
+// DecodeRLP decodes the Ethereum
 func (b *Block) DecodeRLP(s *rlp.Stream) error {
 	var eb extblock
 	_, size, _ := s.Kind()
@@ -370,7 +249,7 @@ func (b *Block) DecodeRLP(s *rlp.Stream) error {
 	return nil
 }
 
-// EncodeRLP serializes b into the Matrix RLP block format.
+// EncodeRLP serializes b into the Ethereum RLP block format.
 func (b *Block) EncodeRLP(w io.Writer) error {
 	return rlp.Encode(w, extblock{
 		Header: b.header,
@@ -379,7 +258,7 @@ func (b *Block) EncodeRLP(w io.Writer) error {
 	})
 }
 
-// [deprecated by man/63]
+// [deprecated by eth/63]
 func (b *StorageBlock) DecodeRLP(s *rlp.Stream) error {
 	var sb storageblock
 	if err := s.Decode(&sb); err != nil {
@@ -387,18 +266,6 @@ func (b *StorageBlock) DecodeRLP(s *rlp.Stream) error {
 	}
 	b.header, b.uncles, b.transactions, b.td = sb.Header, sb.Uncles, sb.Txs, sb.TD
 	return nil
-}
-
-func (b *Block) SignAccounts() map[common.Signature]common.Address {
-	return b.header.SignAccounts()
-}
-
-func (b *Block) IsBroadcastBlock() bool {
-	return b.header.IsBroadcastHeader()
-}
-
-func (b *Block) IsReElectionBlock() bool {
-	return b.header.IsReElectionHeader()
 }
 
 // TODO: copies
@@ -437,10 +304,6 @@ func (b *Block) Header() *Header { return CopyHeader(b.header) }
 
 // Body returns the non-header content of the block.
 func (b *Block) Body() *Body { return &Body{b.transactions, b.uncles} }
-
-func (b *Block) HashNoNonce() common.Hash {
-	return b.header.HashNoNonce()
-}
 
 // Size returns the true RLP encoded storage size of the block, either by encoding
 // and returning it, or returning a previsouly cached value.

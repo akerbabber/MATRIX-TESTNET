@@ -1,29 +1,30 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package clique
 
 import (
 	"bytes"
 	"encoding/json"
+	"sort"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/core/types"
-	"github.com/matrix/go-matrix/mandb"
-	"github.com/matrix/go-matrix/params"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/params"
 	lru "github.com/hashicorp/golang-lru"
 )
 
@@ -56,6 +57,13 @@ type Snapshot struct {
 	Tally   map[common.Address]Tally    `json:"tally"`   // Current vote tally to avoid recalculating
 }
 
+// signersAscending implements the sort interface to allow sorting a list of addresses
+type signersAscending []common.Address
+
+func (s signersAscending) Len() int           { return len(s) }
+func (s signersAscending) Less(i, j int) bool { return bytes.Compare(s[i][:], s[j][:]) < 0 }
+func (s signersAscending) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
+
 // newSnapshot creates a new snapshot with the specified startup parameters. This
 // method does not initialize the set of recent signers, so only ever use if for
 // the genesis block.
@@ -76,7 +84,7 @@ func newSnapshot(config *params.CliqueConfig, sigcache *lru.ARCCache, number uin
 }
 
 // loadSnapshot loads an existing snapshot from the database.
-func loadSnapshot(config *params.CliqueConfig, sigcache *lru.ARCCache, db mandb.Database, hash common.Hash) (*Snapshot, error) {
+func loadSnapshot(config *params.CliqueConfig, sigcache *lru.ARCCache, db ethdb.Database, hash common.Hash) (*Snapshot, error) {
 	blob, err := db.Get(append([]byte("clique-"), hash[:]...))
 	if err != nil {
 		return nil, err
@@ -92,7 +100,7 @@ func loadSnapshot(config *params.CliqueConfig, sigcache *lru.ARCCache, db mandb.
 }
 
 // store inserts the snapshot into the database.
-func (s *Snapshot) store(db mandb.Database) error {
+func (s *Snapshot) store(db ethdb.Database) error {
 	blob, err := json.Marshal(s)
 	if err != nil {
 		return err
@@ -206,11 +214,11 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 			return nil, err
 		}
 		if _, ok := snap.Signers[signer]; !ok {
-			return nil, errUnauthorized
+			return nil, errUnauthorizedSigner
 		}
 		for _, recent := range snap.Recents {
 			if recent == signer {
-				return nil, errUnauthorized
+				return nil, errRecentlySigned
 			}
 		}
 		snap.Recents[number] = signer
@@ -286,18 +294,12 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 
 // signers retrieves the list of authorized signers in ascending order.
 func (s *Snapshot) signers() []common.Address {
-	signers := make([]common.Address, 0, len(s.Signers))
-	for signer := range s.Signers {
-		signers = append(signers, signer)
+	sigs := make([]common.Address, 0, len(s.Signers))
+	for sig := range s.Signers {
+		sigs = append(sigs, sig)
 	}
-	for i := 0; i < len(signers); i++ {
-		for j := i + 1; j < len(signers); j++ {
-			if bytes.Compare(signers[i][:], signers[j][:]) > 0 {
-				signers[i], signers[j] = signers[j], signers[i]
-			}
-		}
-	}
-	return signers
+	sort.Sort(signersAscending(sigs))
+	return sigs
 }
 
 // inturn returns if a signer at a given block height is in-turn or not.

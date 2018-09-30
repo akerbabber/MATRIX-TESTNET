@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of go-ethereum.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// go-ethereum is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// go-ethereum is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU General Public License
+// along with go-ethereum. If not, see <http://www.gnu.org/licenses/>.
 
 package main
 
@@ -23,8 +23,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/matrix/go-matrix/core"
-	"github.com/matrix/go-matrix/log"
+	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/olekukonko/tablewriter"
 )
 
@@ -36,7 +36,7 @@ func (w *wizard) networkStats() {
 		return
 	}
 	// Clear out some previous configs to refill from current scan
-	w.conf.manstats = ""
+	w.conf.ethstats = ""
 	w.conf.bootnodes = w.conf.bootnodes[:0]
 
 	// Iterate over all the specified hosts and check their status
@@ -74,7 +74,7 @@ func (w *wizard) gatherStats(server string, pubkey []byte, client *sshClient) *s
 	// Gather some global stats to feed into the wizard
 	var (
 		genesis   string
-		manstats  string
+		ethstats  string
 		bootnodes []string
 	)
 	// Ensure a valid SSH connection to the remote server
@@ -82,7 +82,6 @@ func (w *wizard) gatherStats(server string, pubkey []byte, client *sshClient) *s
 	logger.Info("Starting remote server health-check")
 
 	stat := &serverStat{
-		address:  client.address,
 		services: make(map[string]map[string]string),
 	}
 	if client == nil {
@@ -94,6 +93,8 @@ func (w *wizard) gatherStats(server string, pubkey []byte, client *sshClient) *s
 		}
 		client = conn
 	}
+	stat.address = client.address
+
 	// Client connected one way or another, run health-checks
 	logger.Debug("Checking for nginx availability")
 	if infos, err := checkNginx(client, w.network); err != nil {
@@ -103,14 +104,14 @@ func (w *wizard) gatherStats(server string, pubkey []byte, client *sshClient) *s
 	} else {
 		stat.services["nginx"] = infos.Report()
 	}
-	logger.Debug("Checking for manstats availability")
+	logger.Debug("Checking for ethstats availability")
 	if infos, err := checkEthstats(client, w.network); err != nil {
 		if err != ErrServiceUnknown {
-			stat.services["manstats"] = map[string]string{"offline": err.Error()}
+			stat.services["ethstats"] = map[string]string{"offline": err.Error()}
 		}
 	} else {
-		stat.services["manstats"] = infos.Report()
-		manstats = infos.config
+		stat.services["ethstats"] = infos.Report()
+		ethstats = infos.config
 	}
 	logger.Debug("Checking for bootnode availability")
 	if infos, err := checkNode(client, w.network, true); err != nil {
@@ -176,8 +177,8 @@ func (w *wizard) gatherStats(server string, pubkey []byte, client *sshClient) *s
 			w.conf.Genesis = g
 		}
 	}
-	if manstats != "" {
-		w.conf.manstats = manstats
+	if ethstats != "" {
+		w.conf.ethstats = ethstats
 	}
 	w.conf.bootnodes = append(w.conf.bootnodes, bootnodes...)
 
@@ -203,7 +204,7 @@ func (stats serverStats) render() {
 
 	table.SetHeader([]string{"Server", "Address", "Service", "Config", "Value"})
 	table.SetAlignment(tablewriter.ALIGN_LEFT)
-	table.SetColWidth(100)
+	table.SetColWidth(40)
 
 	// Find the longest lines for all columns for the hacked separator
 	separator := make([]string, 5)
@@ -214,6 +215,9 @@ func (stats serverStats) render() {
 		if len(stat.address) > len(separator[1]) {
 			separator[1] = strings.Repeat("-", len(stat.address))
 		}
+		if len(stat.failure) > len(separator[1]) {
+			separator[1] = strings.Repeat("-", len(stat.failure))
+		}
 		for service, configs := range stat.services {
 			if len(service) > len(separator[2]) {
 				separator[2] = strings.Repeat("-", len(service))
@@ -222,8 +226,10 @@ func (stats serverStats) render() {
 				if len(config) > len(separator[3]) {
 					separator[3] = strings.Repeat("-", len(config))
 				}
-				if len(value) > len(separator[4]) {
-					separator[4] = strings.Repeat("-", len(value))
+				for _, val := range strings.Split(value, "\n") {
+					if len(val) > len(separator[4]) {
+						separator[4] = strings.Repeat("-", len(val))
+					}
 				}
 			}
 		}
@@ -248,7 +254,11 @@ func (stats serverStats) render() {
 		sort.Strings(services)
 
 		if len(services) == 0 {
-			table.Append([]string{server, stats[server].address, "", "", ""})
+			if stats[server].failure != "" {
+				table.Append([]string{server, stats[server].failure, "", "", ""})
+			} else {
+				table.Append([]string{server, stats[server].address, "", "", ""})
+			}
 		}
 		for j, service := range services {
 			// Add an empty line between all services
@@ -263,26 +273,20 @@ func (stats serverStats) render() {
 			sort.Strings(configs)
 
 			for k, config := range configs {
-				switch {
-				case j == 0 && k == 0:
-					table.Append([]string{server, stats[server].address, service, config, stats[server].services[service][config]})
-				case k == 0:
-					table.Append([]string{"", "", service, config, stats[server].services[service][config]})
-				default:
-					table.Append([]string{"", "", "", config, stats[server].services[service][config]})
+				for l, value := range strings.Split(stats[server].services[service][config], "\n") {
+					switch {
+					case j == 0 && k == 0 && l == 0:
+						table.Append([]string{server, stats[server].address, service, config, value})
+					case k == 0 && l == 0:
+						table.Append([]string{"", "", service, config, value})
+					case l == 0:
+						table.Append([]string{"", "", "", config, value})
+					default:
+						table.Append([]string{"", "", "", "", value})
+					}
 				}
 			}
 		}
 	}
 	table.Render()
-}
-
-// protips contains a collection of network infos to report pro-tips
-// based on.
-type protips struct {
-	genesis   string
-	network   int64
-	bootFull  []string
-	bootLight []string
-	manstats  string
 }

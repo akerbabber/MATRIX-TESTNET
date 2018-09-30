@@ -1,44 +1,43 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
-// Package les implements the Light Matrix Subprotocol.
+// Package les implements the Light Ethereum Subprotocol.
 package les
 
 import (
-	"crypto/ecdsa"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"math/big"
 	"sync"
 	"time"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/core/types"
-	"github.com/matrix/go-matrix/man"
-	"github.com/matrix/go-matrix/les/flowcontrol"
-	"github.com/matrix/go-matrix/light"
-	"github.com/matrix/go-matrix/p2p"
-	"github.com/matrix/go-matrix/rlp"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/eth"
+	"github.com/ethereum/go-ethereum/les/flowcontrol"
+	"github.com/ethereum/go-ethereum/light"
+	"github.com/ethereum/go-ethereum/p2p"
+	"github.com/ethereum/go-ethereum/rlp"
 )
 
 var (
-	errClosed            = errors.New("peer set is closed")
-	errAlreadyRegistered = errors.New("peer is already registered")
-	errNotRegistered     = errors.New("peer is not registered")
+	errClosed             = errors.New("peer set is closed")
+	errAlreadyRegistered  = errors.New("peer is already registered")
+	errNotRegistered      = errors.New("peer is not registered")
+	errInvalidHelpTrieReq = errors.New("invalid help trie request")
 )
 
 const maxResponseErrors = 50 // number of invalid responses tolerated (makes the protocol less brittle but still avoids spam)
@@ -51,7 +50,6 @@ const (
 
 type peer struct {
 	*p2p.Peer
-	pubKey *ecdsa.PublicKey
 
 	rw p2p.MsgReadWriter
 
@@ -80,11 +78,9 @@ type peer struct {
 
 func newPeer(version int, network uint64, p *p2p.Peer, rw p2p.MsgReadWriter) *peer {
 	id := p.ID()
-	pubKey, _ := id.Pubkey()
 
 	return &peer{
 		Peer:        p,
-		pubKey:      pubKey,
 		rw:          rw,
 		version:     version,
 		network:     network,
@@ -102,8 +98,8 @@ func (p *peer) queueSend(f func()) {
 }
 
 // Info gathers and returns a collection of metadata known about a peer.
-func (p *peer) Info() *man.PeerInfo {
-	return &man.PeerInfo{
+func (p *peer) Info() *eth.PeerInfo {
+	return &eth.PeerInfo{
 		Version:    p.version,
 		Difficulty: p.Td(),
 		Head:       fmt.Sprintf("%x", p.Head()),
@@ -284,21 +280,21 @@ func (p *peer) RequestProofs(reqID, cost uint64, reqs []ProofReq) error {
 }
 
 // RequestHelperTrieProofs fetches a batch of HelperTrie merkle proofs from a remote node.
-func (p *peer) RequestHelperTrieProofs(reqID, cost uint64, reqs []HelperTrieReq) error {
-	p.Log().Debug("Fetching batch of HelperTrie proofs", "count", len(reqs))
+func (p *peer) RequestHelperTrieProofs(reqID, cost uint64, data interface{}) error {
 	switch p.version {
 	case lpv1:
-		reqsV1 := make([]ChtReq, len(reqs))
-		for i, req := range reqs {
-			if req.Type != htCanonical || req.AuxReq != auxHeader || len(req.Key) != 8 {
-				return fmt.Errorf("Request invalid in LES/1 mode")
-			}
-			blockNum := binary.BigEndian.Uint64(req.Key)
-			// convert HelperTrie request to old CHT request
-			reqsV1[i] = ChtReq{ChtNum: (req.TrieIdx + 1) * (light.CHTFrequencyClient / light.CHTFrequencyServer), BlockNum: blockNum, FromLevel: req.FromLevel}
+		reqs, ok := data.([]ChtReq)
+		if !ok {
+			return errInvalidHelpTrieReq
 		}
-		return sendRequest(p.rw, GetHeaderProofsMsg, reqID, cost, reqsV1)
+		p.Log().Debug("Fetching batch of header proofs", "count", len(reqs))
+		return sendRequest(p.rw, GetHeaderProofsMsg, reqID, cost, reqs)
 	case lpv2:
+		reqs, ok := data.([]HelperTrieReq)
+		if !ok {
+			return errInvalidHelpTrieReq
+		}
+		p.Log().Debug("Fetching batch of HelperTrie proofs", "count", len(reqs))
 		return sendRequest(p.rw, GetHelperTrieProofsMsg, reqID, cost, reqs)
 	default:
 		panic(nil)
@@ -510,7 +506,7 @@ type peerSetNotify interface {
 }
 
 // peerSet represents the collection of active peers currently participating in
-// the Light Matrix sub-protocol.
+// the Light Ethereum sub-protocol.
 type peerSet struct {
 	peers      map[string]*peer
 	lock       sync.RWMutex

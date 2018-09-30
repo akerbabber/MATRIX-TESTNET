@@ -1,28 +1,29 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2015 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
-// package web3ext contains gman specific web3.js extensions.
+// package web3ext contains geth specific web3.js extensions.
 package web3ext
 
 var Modules = map[string]string{
 	"admin":      Admin_JS,
 	"chequebook": Chequebook_JS,
 	"clique":     Clique_JS,
+	"ethash":     Ethash_JS,
 	"debug":      Debug_JS,
-	"man":        Eth_JS,
+	"eth":        Eth_JS,
 	"miner":      Miner_JS,
 	"net":        Net_JS,
 	"personal":   Personal_JS,
@@ -109,6 +110,34 @@ web3._extend({
 });
 `
 
+const Ethash_JS = `
+web3._extend({
+	property: 'ethash',
+	methods: [
+		new web3._extend.Method({
+			name: 'getWork',
+			call: 'ethash_getWork',
+			params: 0
+		}),
+		new web3._extend.Method({
+			name: 'getHashrate',
+			call: 'ethash_getHashrate',
+			params: 0
+		}),
+		new web3._extend.Method({
+			name: 'submitWork',
+			call: 'ethash_submitWork',
+			params: 3,
+		}),
+		new web3._extend.Method({
+			name: 'submitHashRate',
+			call: 'ethash_submitHashRate',
+			params: 2,
+		}),
+	]
+});
+`
+
 const Admin_JS = `
 web3._extend({
 	property: 'admin',
@@ -121,6 +150,16 @@ web3._extend({
 		new web3._extend.Method({
 			name: 'removePeer',
 			call: 'admin_removePeer',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'addTrustedPeer',
+			call: 'admin_addTrustedPeer',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'removeTrustedPeer',
+			call: 'admin_removeTrustedPeer',
 			params: 1
 		}),
 		new web3._extend.Method({
@@ -313,8 +352,8 @@ web3._extend({
 			params: 2
 		}),
 		new web3._extend.Method({
-			name: 'setMutexProfileRate',
-			call: 'debug_setMutexProfileRate',
+			name: 'setMutexProfileFraction',
+			call: 'debug_setMutexProfileFraction',
 			params: 1
 		}),
 		new web3._extend.Method({
@@ -392,61 +431,55 @@ web3._extend({
 
 const Eth_JS = `
 web3._extend({
-	property: 'man',
+	property: 'eth',
 	methods: [
 		new web3._extend.Method({
+			name: 'chainId',
+			call: 'eth_chainId',
+			params: 0
+		}),
+		new web3._extend.Method({
 			name: 'sign',
-			call: 'man_sign',
+			call: 'eth_sign',
 			params: 2,
 			inputFormatter: [web3._extend.formatters.inputAddressFormatter, null]
 		}),
 		new web3._extend.Method({
 			name: 'resend',
-			call: 'man_resend',
+			call: 'eth_resend',
 			params: 3,
 			inputFormatter: [web3._extend.formatters.inputTransactionFormatter, web3._extend.utils.fromDecimal, web3._extend.utils.fromDecimal]
 		}),
 		new web3._extend.Method({
 			name: 'signTransaction',
-			call: 'man_signTransaction',
+			call: 'eth_signTransaction',
 			params: 1,
 			inputFormatter: [web3._extend.formatters.inputTransactionFormatter]
 		}),
 		new web3._extend.Method({
 			name: 'submitTransaction',
-			call: 'man_submitTransaction',
+			call: 'eth_submitTransaction',
 			params: 1,
 			inputFormatter: [web3._extend.formatters.inputTransactionFormatter]
 		}),
 		new web3._extend.Method({
 			name: 'getRawTransaction',
-			call: 'man_getRawTransactionByHash',
+			call: 'eth_getRawTransactionByHash',
 			params: 1
 		}),
 		new web3._extend.Method({
 			name: 'getRawTransactionFromBlock',
 			call: function(args) {
-				return (web3._extend.utils.isString(args[0]) && args[0].indexOf('0x') === 0) ? 'man_getRawTransactionByBlockHashAndIndex' : 'man_getRawTransactionByBlockNumberAndIndex';
+				return (web3._extend.utils.isString(args[0]) && args[0].indexOf('0x') === 0) ? 'eth_getRawTransactionByBlockHashAndIndex' : 'eth_getRawTransactionByBlockNumberAndIndex';
 			},
 			params: 2,
 			inputFormatter: [web3._extend.formatters.inputBlockNumberFormatter, web3._extend.utils.toHex]
-		}),
-		//hezi
-		new web3._extend.Method({
-			name: 'getTopology',
-			call: 'man_getTopology',
-			params: 2,
-		}),
-        new web3._extend.Method({
-			name: 'getSelfLevel',
-			call: 'man_getSelfLevel',
-			params: 0,
 		}),
 	],
 	properties: [
 		new web3._extend.Property({
 			name: 'pendingTransactions',
-			getter: 'man_pendingTransactions',
+			getter: 'eth_pendingTransactions',
 			outputFormatter: function(txs) {
 				var formatted = [];
 				for (var i = 0; i < txs.length; i++) {
@@ -492,24 +525,14 @@ web3._extend({
 			inputFormatter: [web3._extend.utils.fromDecimal]
 		}),
 		new web3._extend.Method({
+			name: 'setRecommitInterval',
+			call: 'miner_setRecommitInterval',
+			params: 1,
+		}),
+		new web3._extend.Method({
 			name: 'getHashrate',
 			call: 'miner_getHashrate'
 		}),
-		new web3._extend.Method({
-			name:'testMining',
-			call:'miner_testLocalMining',
-			params:2
-		}),
-		new web3._extend.Method({
-			name:'testHeaderGen',
-			call:'miner_testHeaderGen',
-			params:2
-		}),
-		new web3._extend.Method({
-			name:'testChangeRole',
-			call:'miner_testChangeRole',
-			params:3
-		})
 	],
 	properties: []
 });

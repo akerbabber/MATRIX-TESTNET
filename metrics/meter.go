@@ -1,18 +1,3 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
-//
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
-//
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 package metrics
 
 import (
@@ -44,6 +29,17 @@ func GetOrRegisterMeter(name string, r Registry) Meter {
 	return r.GetOrRegister(name, NewMeter).(Meter)
 }
 
+// GetOrRegisterMeterForced returns an existing Meter or constructs and registers a
+// new StandardMeter no matter the global switch is enabled or not.
+// Be sure to unregister the meter from the registry once it is of no use to
+// allow for garbage collection.
+func GetOrRegisterMeterForced(name string, r Registry) Meter {
+	if nil == r {
+		r = DefaultRegistry
+	}
+	return r.GetOrRegister(name, NewMeterForced).(Meter)
+}
+
 // NewMeter constructs a new StandardMeter and launches a goroutine.
 // Be sure to call Stop() once the meter is of no use to allow for garbage collection.
 func NewMeter() Meter {
@@ -61,12 +57,40 @@ func NewMeter() Meter {
 	return m
 }
 
-// NewMeter constructs and registers a new StandardMeter and launches a
-// goroutine.
+// NewMeterForced constructs a new StandardMeter and launches a goroutine no matter
+// the global switch is enabled or not.
+// Be sure to call Stop() once the meter is of no use to allow for garbage collection.
+func NewMeterForced() Meter {
+	m := newStandardMeter()
+	arbiter.Lock()
+	defer arbiter.Unlock()
+	arbiter.meters[m] = struct{}{}
+	if !arbiter.started {
+		arbiter.started = true
+		go arbiter.tick()
+	}
+	return m
+}
+
+// NewRegisteredMeter constructs and registers a new StandardMeter
+// and launches a goroutine.
 // Be sure to unregister the meter from the registry once it is of no use to
 // allow for garbage collection.
 func NewRegisteredMeter(name string, r Registry) Meter {
 	c := NewMeter()
+	if nil == r {
+		r = DefaultRegistry
+	}
+	r.Register(name, c)
+	return c
+}
+
+// NewRegisteredMeterForced constructs and registers a new StandardMeter
+// and launches a goroutine no matter the global switch is enabled or not.
+// Be sure to unregister the meter from the registry once it is of no use to
+// allow for garbage collection.
+func NewRegisteredMeterForced(name string, r Registry) Meter {
+	c := NewMeterForced()
 	if nil == r {
 		r = DefaultRegistry
 	}

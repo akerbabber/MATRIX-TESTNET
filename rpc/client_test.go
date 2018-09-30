@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package rpc
 
@@ -31,7 +31,7 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/matrix/go-matrix/log"
+	"github.com/ethereum/go-ethereum/log"
 )
 
 func TestClientRequest(t *testing.T) {
@@ -221,7 +221,7 @@ func TestClientSubscribeInvalidArg(t *testing.T) {
 }
 
 func TestClientSubscribe(t *testing.T) {
-	server := newTestServer("man", new(NotificationTestService))
+	server := newTestServer("eth", new(NotificationTestService))
 	defer server.Stop()
 	client := DialInProc(server)
 	defer client.Close()
@@ -290,7 +290,7 @@ func TestClientSubscribeClose(t *testing.T) {
 		gotHangSubscriptionReq:  make(chan struct{}),
 		unblockHangSubscription: make(chan struct{}),
 	}
-	server := newTestServer("man", service)
+	server := newTestServer("eth", service)
 	defer server.Stop()
 	client := DialInProc(server)
 	defer client.Close()
@@ -326,7 +326,7 @@ func TestClientSubscribeClose(t *testing.T) {
 // This test checks that Client doesn't lock up when a single subscriber
 // doesn't read subscription events.
 func TestClientNotificationStorm(t *testing.T) {
-	server := newTestServer("man", new(NotificationTestService))
+	server := newTestServer("eth", new(NotificationTestService))
 	defer server.Stop()
 
 	doTest := func(count int, wantError bool) {
@@ -360,7 +360,7 @@ func TestClientNotificationStorm(t *testing.T) {
 				return
 			}
 			var r int
-			err := client.CallContext(ctx, &r, "man_echo", i)
+			err := client.CallContext(ctx, &r, "eth_echo", i)
 			if err != nil {
 				if !wantError {
 					t.Fatalf("(%d/%d) call error: %v", i, count, err)
@@ -520,7 +520,7 @@ func httpTestClient(srv *Server, transport string, fl *flakeyListener) (*Client,
 
 func ipcTestClient(srv *Server, fl *flakeyListener) (*Client, net.Listener) {
 	// Listen on a random endpoint.
-	endpoint := fmt.Sprintf("go-matrix-test-ipc-%d-%d", os.Getpid(), rand.Int63())
+	endpoint := fmt.Sprintf("go-ethereum-test-ipc-%d-%d", os.Getpid(), rand.Int63())
 	if runtime.GOOS == "windows" {
 		endpoint = `\\.\pipe\` + endpoint
 	} else {

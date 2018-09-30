@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package api
 
@@ -25,7 +25,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matrix/go-matrix/swarm/storage"
+	"github.com/ethereum/go-ethereum/swarm/storage"
 )
 
 func manifest(paths ...string) (manifestReader storage.LazySectionReader) {
@@ -42,7 +42,9 @@ func manifest(paths ...string) (manifestReader storage.LazySectionReader) {
 
 func testGetEntry(t *testing.T, path, match string, multiple bool, paths ...string) *manifestTrie {
 	quitC := make(chan bool)
-	trie, err := readManifest(manifest(paths...), nil, nil, quitC)
+	fileStore := storage.NewFileStore(nil, storage.NewFileStoreParams())
+	ref := make([]byte, fileStore.HashSize())
+	trie, err := readManifest(manifest(paths...), ref, fileStore, false, quitC, NOOPDecrypt)
 	if err != nil {
 		t.Errorf("unexpected error making manifest: %v", err)
 	}
@@ -97,7 +99,9 @@ func TestGetEntry(t *testing.T) {
 func TestExactMatch(t *testing.T) {
 	quitC := make(chan bool)
 	mf := manifest("shouldBeExactMatch.css", "shouldBeExactMatch.css.map")
-	trie, err := readManifest(mf, nil, nil, quitC)
+	fileStore := storage.NewFileStore(nil, storage.NewFileStoreParams())
+	ref := make([]byte, fileStore.HashSize())
+	trie, err := readManifest(mf, ref, fileStore, false, quitC, nil)
 	if err != nil {
 		t.Errorf("unexpected error making manifest: %v", err)
 	}
@@ -128,7 +132,9 @@ func TestAddFileWithManifestPath(t *testing.T) {
 	reader := &storage.LazyTestSectionReader{
 		SectionReader: io.NewSectionReader(bytes.NewReader(manifest), 0, int64(len(manifest))),
 	}
-	trie, err := readManifest(reader, nil, nil, nil)
+	fileStore := storage.NewFileStore(nil, storage.NewFileStoreParams())
+	ref := make([]byte, fileStore.HashSize())
+	trie, err := readManifest(reader, ref, fileStore, false, nil, NOOPDecrypt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,4 +149,27 @@ func TestAddFileWithManifestPath(t *testing.T) {
 	checkEntry(t, "ab", "ab", false, trie)
 	checkEntry(t, "ac", "ac", false, trie)
 	checkEntry(t, "a", "a", false, trie)
+}
+
+// TestReadManifestOverSizeLimit creates a manifest reader with data longer then
+// manifestSizeLimit and checks if readManifest function will return the exact error
+// message.
+// The manifest data is not in json-encoded format, preventing possbile
+// successful parsing attempts if limit check fails.
+func TestReadManifestOverSizeLimit(t *testing.T) {
+	manifest := make([]byte, manifestSizeLimit+1)
+	reader := &storage.LazyTestSectionReader{
+		SectionReader: io.NewSectionReader(bytes.NewReader(manifest), 0, int64(len(manifest))),
+	}
+	_, err := readManifest(reader, storage.Address{}, nil, false, nil, NOOPDecrypt)
+	if err == nil {
+		t.Fatal("got no error from readManifest")
+	}
+	// Error message is part of the http response body
+	// which justifies exact string validation.
+	got := err.Error()
+	want := fmt.Sprintf("Manifest size of %v bytes exceeds the %v byte limit", len(manifest), manifestSizeLimit)
+	if got != want {
+		t.Fatalf("got error mesage %q, expected %q", got, want)
+	}
 }

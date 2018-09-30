@@ -1,18 +1,3 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
-//
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
-//
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 package log
 
 import (
@@ -37,7 +22,7 @@ const (
 
 // locationTrims are trimmed for display to avoid unwieldy log lines.
 var locationTrims = []string{
-	"github.com/matrix/go-matrix/",
+	"github.com/ethereum/go-ethereum/",
 }
 
 // PrintOrigins sets or unsets log location (file:line) printing for terminal
@@ -136,15 +121,15 @@ func TerminalFormat(usecolor bool) Format {
 
 			// Assemble and print the log heading
 			if color > 0 {
-				fmt.Fprintf(b, "\x1b[%dm%s\x1b[0m[%s|%s] [%d] %s %s ", color, lvl, r.Time.Format(termTimeFormat), location, r.Cnt, padding, r.Msg)
+				fmt.Fprintf(b, "\x1b[%dm%s\x1b[0m[%s|%s]%s %s ", color, lvl, r.Time.Format(termTimeFormat), location, padding, r.Msg)
 			} else {
-				fmt.Fprintf(b, "%s[%s|%s][%d]%s %s ", lvl, r.Time.Format(termTimeFormat), location, r.Cnt, padding, r.Msg)
+				fmt.Fprintf(b, "%s[%s|%s]%s %s ", lvl, r.Time.Format(termTimeFormat), location, padding, r.Msg)
 			}
 		} else {
 			if color > 0 {
-				fmt.Fprintf(b, "\x1b[%dm%s\x1b[0m[%s] [%d] %s ", color, lvl, r.Time.Format(termTimeFormat), r.Cnt, r.Msg)
+				fmt.Fprintf(b, "\x1b[%dm%s\x1b[0m[%s] %s ", color, lvl, r.Time.Format(termTimeFormat), r.Msg)
 			} else {
-				fmt.Fprintf(b, "%s[%s] [%d] %s ", lvl, r.Time.Format(termTimeFormat), r.Cnt, r.Msg)
+				fmt.Fprintf(b, "%s[%s] %s ", lvl, r.Time.Format(termTimeFormat), r.Msg)
 			}
 		}
 		// try to justify the log output for short messages
@@ -233,7 +218,6 @@ func JSONFormatOrderedEx(pretty, lineSeparated bool) Format {
 		props[r.KeyNames.Time] = r.Time
 		props[r.KeyNames.Lvl] = r.Lvl.String()
 		props[r.KeyNames.Msg] = r.Msg
-		props[r.KeyNames.Cnt] = r.Cnt
 
 		ctx := make([]string, len(r.Ctx))
 		for i := 0; i < len(r.Ctx); i += 2 {

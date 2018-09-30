@@ -1,35 +1,35 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
-// Package accounts implements high level Matrix account management.
+// Package accounts implements high level Ethereum account management.
 package accounts
 
 import (
 	"math/big"
 
-	matrix "github.com/matrix/go-matrix"
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/core/types"
-	"github.com/matrix/go-matrix/event"
+	ethereum "github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/event"
 )
 
-// Account represents an Matrix account located at a specific location defined
+// Account represents an Ethereum account located at a specific location defined
 // by the optional URL field.
 type Account struct {
-	Address common.Address `json:"address"` // Matrix account address derived from the key
+	Address common.Address `json:"address"` // Ethereum account address derived from the key
 	URL     URL            `json:"url"`     // Optional resource locator within a backend
 }
 
@@ -85,7 +85,7 @@ type Wallet interface {
 	//
 	// You can disable automatic account discovery by calling SelfDerive with a nil
 	// chain state reader.
-	SelfDerive(base DerivationPath, chain matrix.ChainStateReader)
+	SelfDerive(base DerivationPath, chain ethereum.ChainStateReader)
 
 	// SignHash requests the wallet to sign the given hash.
 	//
@@ -106,7 +106,7 @@ type Wallet interface {
 	// or optionally with the aid of any location metadata from the embedded URL field.
 	//
 	// If the wallet requires additional authentication to sign the request (e.g.
-	// a password to decrypt the account, or a PIN code o verify the transaction),
+	// a password to decrypt the account, or a PIN code to verify the transaction),
 	// an AuthNeededError instance will be returned, containing infos for the user
 	// about which fields or actions are needed. The user may retry by providing
 	// the needed details via SignTxWithPassphrase, or by other means (e.g. unlock
@@ -126,10 +126,6 @@ type Wallet interface {
 	// It looks up the account specified either solely via its address contained within,
 	// or optionally with the aid of any location metadata from the embedded URL field.
 	SignTxWithPassphrase(account Account, passphrase string, tx *types.Transaction, chainID *big.Int) (*types.Transaction, error)
-
-	SignHashValidate(account Account, hash []byte, validate bool) ([]byte, error)
-
-	SignHashValidateWithPass(account Account, passphrase string, hash []byte, validate bool) ([]byte, error)
 }
 
 // Backend is a "wallet provider" that may contain a batch of accounts they can

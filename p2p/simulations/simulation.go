@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package simulations
 
@@ -20,7 +20,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/matrix/go-matrix/p2p/discover"
+	"github.com/ethereum/go-ethereum/p2p/enode"
 )
 
 // Simulation provides a framework for running actions in a simulated network
@@ -55,7 +55,7 @@ func (s *Simulation) Run(ctx context.Context, step *Step) (result *StepResult) {
 	}
 
 	// wait for all node expectations to either pass, error or timeout
-	nodes := make(map[discover.NodeID]struct{}, len(step.Expect.Nodes))
+	nodes := make(map[enode.ID]struct{}, len(step.Expect.Nodes))
 	for _, id := range step.Expect.Nodes {
 		nodes[id] = struct{}{}
 	}
@@ -119,7 +119,7 @@ type Step struct {
 
 	// Trigger is a channel which receives node ids and triggers an
 	// expectation check for that node
-	Trigger chan discover.NodeID
+	Trigger chan enode.ID
 
 	// Expect is the expectation to wait for when performing this step
 	Expect *Expectation
@@ -127,15 +127,15 @@ type Step struct {
 
 type Expectation struct {
 	// Nodes is a list of nodes to check
-	Nodes []discover.NodeID
+	Nodes []enode.ID
 
 	// Check checks whether a given node meets the expectation
-	Check func(context.Context, discover.NodeID) (bool, error)
+	Check func(context.Context, enode.ID) (bool, error)
 }
 
 func newStepResult() *StepResult {
 	return &StepResult{
-		Passes: make(map[discover.NodeID]time.Time),
+		Passes: make(map[enode.ID]time.Time),
 	}
 }
 
@@ -150,7 +150,7 @@ type StepResult struct {
 	FinishedAt time.Time
 
 	// Passes are the timestamps of the successful node expectations
-	Passes map[discover.NodeID]time.Time
+	Passes map[enode.ID]time.Time
 
 	// NetworkEvents are the network events which occurred during the step
 	NetworkEvents []*Event

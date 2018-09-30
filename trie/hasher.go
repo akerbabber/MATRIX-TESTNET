@@ -1,43 +1,64 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package trie
 
 import (
-	"bytes"
 	"hash"
 	"sync"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/crypto/sha3"
-	"github.com/matrix/go-matrix/rlp"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto/sha3"
+	"github.com/ethereum/go-ethereum/rlp"
 )
 
 type hasher struct {
-	tmp        *bytes.Buffer
-	sha        hash.Hash
+	tmp        sliceBuffer
+	sha        keccakState
 	cachegen   uint16
 	cachelimit uint16
 	onleaf     LeafCallback
 }
 
+// keccakState wraps sha3.state. In addition to the usual hash methods, it also supports
+// Read to get a variable amount of data from the hash state. Read is faster than Sum
+// because it doesn't copy the internal state, but also modifies the internal state.
+type keccakState interface {
+	hash.Hash
+	Read([]byte) (int, error)
+}
+
+type sliceBuffer []byte
+
+func (b *sliceBuffer) Write(data []byte) (n int, err error) {
+	*b = append(*b, data...)
+	return len(data), nil
+}
+
+func (b *sliceBuffer) Reset() {
+	*b = (*b)[:0]
+}
+
 // hashers live in a global db.
 var hasherPool = sync.Pool{
 	New: func() interface{} {
-		return &hasher{tmp: new(bytes.Buffer), sha: sha3.NewKeccak256()}
+		return &hasher{
+			tmp: make(sliceBuffer, 0, 550), // cap is as large as a full fullNode.
+			sha: sha3.NewKeccak256().(keccakState),
+		}
 	},
 }
 
@@ -116,9 +137,6 @@ func (h *hasher) hashChildren(original node, db *Database) (node, node, error) {
 				return original, original, err
 			}
 		}
-		if collapsed.Val == nil {
-			collapsed.Val = valueNode(nil) // Ensure that nil children are encoded as empty strings.
-		}
 		return collapsed, cached, nil
 
 	case *fullNode:
@@ -131,14 +149,9 @@ func (h *hasher) hashChildren(original node, db *Database) (node, node, error) {
 				if err != nil {
 					return original, original, err
 				}
-			} else {
-				collapsed.Children[i] = valueNode(nil) // Ensure that nil children are encoded as empty strings.
 			}
 		}
 		cached.Children[16] = n.Children[16]
-		if collapsed.Children[16] == nil {
-			collapsed.Children[16] = valueNode(nil)
-		}
 		return collapsed, cached, nil
 
 	default:
@@ -157,51 +170,36 @@ func (h *hasher) store(n node, db *Database, force bool) (node, error) {
 	}
 	// Generate the RLP encoding of the node
 	h.tmp.Reset()
-	if err := rlp.Encode(h.tmp, n); err != nil {
+	if err := rlp.Encode(&h.tmp, n); err != nil {
 		panic("encode error: " + err.Error())
 	}
-	if h.tmp.Len() < 32 && !force {
+	if len(h.tmp) < 32 && !force {
 		return n, nil // Nodes smaller than 32 bytes are stored inside their parent
 	}
 	// Larger nodes are replaced by their hash and stored in the database.
 	hash, _ := n.cache()
 	if hash == nil {
-		h.sha.Reset()
-		h.sha.Write(h.tmp.Bytes())
-		hash = hashNode(h.sha.Sum(nil))
+		hash = h.makeHashNode(h.tmp)
 	}
+
 	if db != nil {
 		// We are pooling the trie nodes into an intermediate memory cache
-		db.lock.Lock()
-
 		hash := common.BytesToHash(hash)
-		db.insert(hash, h.tmp.Bytes())
 
-		// Track all direct parent->child node references
-		switch n := n.(type) {
-		case *shortNode:
-			if child, ok := n.Val.(hashNode); ok {
-				db.reference(common.BytesToHash(child), hash)
-			}
-		case *fullNode:
-			for i := 0; i < 16; i++ {
-				if child, ok := n.Children[i].(hashNode); ok {
-					db.reference(common.BytesToHash(child), hash)
-				}
-			}
-		}
+		db.lock.Lock()
+		db.insert(hash, h.tmp, n)
 		db.lock.Unlock()
 
 		// Track external references from account->storage trie
 		if h.onleaf != nil {
 			switch n := n.(type) {
 			case *shortNode:
-				if child, ok := n.Val.(valueNode); ok && child != nil {
+				if child, ok := n.Val.(valueNode); ok {
 					h.onleaf(child, hash)
 				}
 			case *fullNode:
 				for i := 0; i < 16; i++ {
-					if child, ok := n.Children[i].(valueNode); ok && child != nil {
+					if child, ok := n.Children[i].(valueNode); ok {
 						h.onleaf(child, hash)
 					}
 				}
@@ -209,4 +207,12 @@ func (h *hasher) store(n node, db *Database, force bool) (node, error) {
 		}
 	}
 	return hash, nil
+}
+
+func (h *hasher) makeHashNode(data []byte) hashNode {
+	n := make(hashNode, h.sha.Size())
+	h.sha.Reset()
+	h.sha.Write(data)
+	h.sha.Read(n)
+	return n
 }

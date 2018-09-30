@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of go-ethereum.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// go-ethereum is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// go-ethereum is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU General Public License
+// along with go-ethereum. If not, see <http://www.gnu.org/licenses/>.
 
 package main
 
@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/matrix/go-matrix/log"
+	"github.com/ethereum/go-ethereum/log"
 )
 
 // manageServers displays a list of servers the user can disconnect from, and an
@@ -62,14 +62,14 @@ func (w *wizard) manageServers() {
 	}
 }
 
-// makeServer reads a single line from stdin and interprets it as a hostname to
-// connect to. It tries to establish a new SSH session and also executing some
-// baseline validations.
+// makeServer reads a single line from stdin and interprets it as
+// username:identity@hostname to connect to. It tries to establish a
+// new SSH session and also executing some baseline validations.
 //
 // If connection succeeds, the server is added to the wizards configs!
 func (w *wizard) makeServer() string {
 	fmt.Println()
-	fmt.Println("Please enter remote server's address:")
+	fmt.Println("What is the remote server's address ([username[:identity]@]hostname[:port])?")
 
 	// Read and dial the server to ensure docker is present
 	input := w.readString()
@@ -87,7 +87,7 @@ func (w *wizard) makeServer() string {
 	return input
 }
 
-// selectServer lists the user all the currnetly known servers to choose from,
+// selectServer lists the user all the currently known servers to choose from,
 // also granting the option to add a new one.
 func (w *wizard) selectServer() string {
 	// List the available server to the user and wait for a choice
@@ -115,7 +115,7 @@ func (w *wizard) selectServer() string {
 // manageComponents displays a list of network components the user can tear down
 // and an option
 func (w *wizard) manageComponents() {
-	// List all the componens we can tear down, along with an entry to deploy a new one
+	// List all the components we can tear down, along with an entry to deploy a new one
 	fmt.Println()
 
 	var serviceHosts, serviceNames []string
@@ -174,7 +174,7 @@ func (w *wizard) deployComponent() {
 	fmt.Println(" 1. Ethstats  - Network monitoring tool")
 	fmt.Println(" 2. Bootnode  - Entry point of the network")
 	fmt.Println(" 3. Sealer    - Full node minting new blocks")
-	fmt.Println(" 4. Explorer  - Chain analysis webservice (manash only)")
+	fmt.Println(" 4. Explorer  - Chain analysis webservice (ethash only)")
 	fmt.Println(" 5. Wallet    - Browser wallet for quick sends")
 	fmt.Println(" 6. Faucet    - Crypto faucet to give away funds")
 	fmt.Println(" 7. Dashboard - Website listing above web-services")

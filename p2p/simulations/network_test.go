@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package simulations
 
@@ -22,8 +22,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matrix/go-matrix/p2p/discover"
-	"github.com/matrix/go-matrix/p2p/simulations/adapters"
+	"github.com/ethereum/go-ethereum/p2p/enode"
+	"github.com/ethereum/go-ethereum/p2p/simulations/adapters"
 )
 
 // TestNetworkSimulation creates a multi-node simulation network with each node
@@ -39,9 +39,10 @@ func TestNetworkSimulation(t *testing.T) {
 	})
 	defer network.Shutdown()
 	nodeCount := 20
-	ids := make([]discover.NodeID, nodeCount)
+	ids := make([]enode.ID, nodeCount)
 	for i := 0; i < nodeCount; i++ {
-		node, err := network.NewNode()
+		conf := adapters.RandomNodeConfig()
+		node, err := network.NewNodeWithConfig(conf)
 		if err != nil {
 			t.Fatalf("error creating node: %s", err)
 		}
@@ -63,7 +64,7 @@ func TestNetworkSimulation(t *testing.T) {
 		}
 		return nil
 	}
-	check := func(ctx context.Context, id discover.NodeID) (bool, error) {
+	check := func(ctx context.Context, id enode.ID) (bool, error) {
 		// check we haven't run out of time
 		select {
 		case <-ctx.Done():
@@ -101,7 +102,7 @@ func TestNetworkSimulation(t *testing.T) {
 	defer cancel()
 
 	// trigger a check every 100ms
-	trigger := make(chan discover.NodeID)
+	trigger := make(chan enode.ID)
 	go triggerChecks(ctx, ids, trigger, 100*time.Millisecond)
 
 	result := NewSimulation(network).Run(ctx, &Step{
@@ -139,7 +140,7 @@ func TestNetworkSimulation(t *testing.T) {
 	}
 }
 
-func triggerChecks(ctx context.Context, ids []discover.NodeID, trigger chan discover.NodeID, interval time.Duration) {
+func triggerChecks(ctx context.Context, ids []enode.ID, trigger chan enode.ID, interval time.Duration) {
 	tick := time.NewTicker(interval)
 	defer tick.Stop()
 	for {

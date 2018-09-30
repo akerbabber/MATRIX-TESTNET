@@ -1,27 +1,27 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package keystore
 
 import (
 	"math/big"
 
-	matrix "github.com/matrix/go-matrix"
-	"github.com/matrix/go-matrix/accounts"
-	"github.com/matrix/go-matrix/core/types"
+	ethereum "github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/accounts"
+	"github.com/ethereum/go-ethereum/core/types"
 )
 
 // keystoreWallet implements the accounts.Wallet interface for the original
@@ -76,7 +76,7 @@ func (w *keystoreWallet) Derive(path accounts.DerivationPath, pin bool) (account
 
 // SelfDerive implements accounts.Wallet, but is a noop for plain wallets since
 // there is no notion of hierarchical account derivation for plain keystore accounts.
-func (w *keystoreWallet) SelfDerive(base accounts.DerivationPath, chain matrix.ChainStateReader) {}
+func (w *keystoreWallet) SelfDerive(base accounts.DerivationPath, chain ethereum.ChainStateReader) {}
 
 // SignHash implements accounts.Wallet, attempting to sign the given hash with
 // the given account. If the wallet does not wrap this particular account, an
@@ -136,28 +136,4 @@ func (w *keystoreWallet) SignTxWithPassphrase(account accounts.Account, passphra
 	}
 	// Account seems valid, request the keystore to sign
 	return w.keystore.SignTxWithPassphrase(account, passphrase, tx, chainID)
-}
-
-func (w *keystoreWallet) SignHashValidate(account accounts.Account, hash []byte, validate bool) ([]byte, error) {
-	// Make sure the requested account is contained within
-	if account.Address != w.account.Address {
-		return nil, accounts.ErrUnknownAccount
-	}
-	if account.URL != (accounts.URL{}) && account.URL != w.account.URL {
-		return nil, accounts.ErrUnknownAccount
-	}
-	// Account seems valid, request the keystore to sign
-	return w.keystore.SignHashValidate(account, hash, validate)
-}
-
-func (w *keystoreWallet) SignHashValidateWithPass(account accounts.Account, passphrase string, hash []byte, validate bool) ([]byte, error) {
-	// Make sure the requested account is contained within
-	if account.Address != w.account.Address {
-		return nil, accounts.ErrUnknownAccount
-	}
-	if account.URL != (accounts.URL{}) && account.URL != w.account.URL {
-		return nil, accounts.ErrUnknownAccount
-	}
-	// Account seems valid, request the keystore to sign
-	return w.keystore.SignHashValidateWithPass(account, passphrase, hash, validate)
 }

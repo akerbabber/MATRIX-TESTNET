@@ -1,72 +1,97 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package testutil
 
 import (
 	"io/ioutil"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
 
-	"github.com/matrix/go-matrix/swarm/api"
-	httpapi "github.com/matrix/go-matrix/swarm/api/http"
-	"github.com/matrix/go-matrix/swarm/storage"
+	"github.com/ethereum/go-ethereum/swarm/api"
+	"github.com/ethereum/go-ethereum/swarm/storage"
+	"github.com/ethereum/go-ethereum/swarm/storage/mru"
 )
 
-func NewTestSwarmServer(t *testing.T) *TestSwarmServer {
+type TestServer interface {
+	ServeHTTP(http.ResponseWriter, *http.Request)
+}
+
+func NewTestSwarmServer(t *testing.T, serverFunc func(*api.API) TestServer, resolver api.Resolver) *TestSwarmServer {
 	dir, err := ioutil.TempDir("", "swarm-storage-test")
 	if err != nil {
 		t.Fatal(err)
 	}
-	storeparams := &storage.StoreParams{
-		ChunkDbPath:   dir,
-		DbCapacity:    5000000,
-		CacheCapacity: 5000,
-		Radius:        0,
-	}
-	localStore, err := storage.NewLocalStore(storage.MakeHashFunc("SHA3"), storeparams)
+	storeparams := storage.NewDefaultLocalStoreParams()
+	storeparams.DbCapacity = 5000000
+	storeparams.CacheCapacity = 5000
+	storeparams.Init(dir)
+	localStore, err := storage.NewLocalStore(storeparams, nil)
 	if err != nil {
 		os.RemoveAll(dir)
 		t.Fatal(err)
 	}
-	chunker := storage.NewTreeChunker(storage.NewChunkerParams())
-	dpa := &storage.DPA{
-		Chunker:    chunker,
-		ChunkStore: localStore,
+	fileStore := storage.NewFileStore(localStore, storage.NewFileStoreParams())
+
+	// mutable resources test setup
+	resourceDir, err := ioutil.TempDir("", "swarm-resource-test")
+	if err != nil {
+		t.Fatal(err)
 	}
-	dpa.Start()
-	a := api.NewApi(dpa, nil)
-	srv := httptest.NewServer(httpapi.NewServer(a))
-	return &TestSwarmServer{
-		Server: srv,
-		Dpa:    dpa,
-		dir:    dir,
+
+	rhparams := &mru.HandlerParams{}
+	rh, err := mru.NewTestHandler(resourceDir, rhparams)
+	if err != nil {
+		t.Fatal(err)
 	}
+
+	a := api.NewAPI(fileStore, resolver, rh.Handler, nil)
+	srv := httptest.NewServer(serverFunc(a))
+	tss := &TestSwarmServer{
+		Server:    srv,
+		FileStore: fileStore,
+		dir:       dir,
+		Hasher:    storage.MakeHashFunc(storage.DefaultHash)(),
+		cleanup: func() {
+			srv.Close()
+			rh.Close()
+			os.RemoveAll(dir)
+			os.RemoveAll(resourceDir)
+		},
+		CurrentTime: 42,
+	}
+	mru.TimestampProvider = tss
+	return tss
 }
 
 type TestSwarmServer struct {
 	*httptest.Server
-
-	Dpa *storage.DPA
-	dir string
+	Hasher      storage.SwarmHash
+	FileStore   *storage.FileStore
+	dir         string
+	cleanup     func()
+	CurrentTime uint64
 }
 
 func (t *TestSwarmServer) Close() {
-	t.Server.Close()
-	t.Dpa.Stop()
-	os.RemoveAll(t.dir)
+	t.cleanup()
+}
+
+func (t *TestSwarmServer) Now() mru.Timestamp {
+	return mru.Timestamp{Time: t.CurrentTime}
 }

@@ -1,30 +1,30 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
-// Package consensus implements different Matrix consensus engines.
+// Package consensus implements different Ethereum consensus engines.
 package consensus
 
 import (
 	"math/big"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/core/state"
-	"github.com/matrix/go-matrix/core/types"
-	"github.com/matrix/go-matrix/params"
-	"github.com/matrix/go-matrix/rpc"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/state"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/params"
+	"github.com/ethereum/go-ethereum/rpc"
 )
 
 // ChainReader defines a small collection of methods needed to access the local
@@ -51,7 +51,7 @@ type ChainReader interface {
 
 // Engine is an algorithm agnostic consensus engine.
 type Engine interface {
-	// Author retrieves the Matrix address of the account that minted the given
+	// Author retrieves the Ethereum address of the account that minted the given
 	// block, which may be different from the header's coinbase if a consensus
 	// engine is based on signatures.
 	Author(header *types.Header) (common.Address, error)
@@ -86,9 +86,15 @@ type Engine interface {
 	Finalize(chain ChainReader, header *types.Header, state *state.StateDB, txs []*types.Transaction,
 		uncles []*types.Header, receipts []*types.Receipt) (*types.Block, error)
 
-	// Seal generates a new block for the given input block with the local miner's
-	// seal place on top.
-	Seal(chain ChainReader, header *types.Header, stop <-chan struct{}, foundMsgCh chan *FoundMsg, diffList []*big.Int, isBroadcastNode bool) error
+	// Seal generates a new sealing request for the given input block and pushes
+	// the result into the given channel.
+	//
+	// Note, the method returns immediately and will send the result async. More
+	// than one result may also be returned depending on the consensus algorithm.
+	Seal(chain ChainReader, block *types.Block, results chan<- *types.Block, stop <-chan struct{}) error
+
+	// SealHash returns the hash of a block prior to it being sealed.
+	SealHash(header *types.Header) common.Hash
 
 	// CalcDifficulty is the difficulty adjustment algorithm. It returns the difficulty
 	// that a new block should have.
@@ -96,6 +102,9 @@ type Engine interface {
 
 	// APIs returns the RPC APIs this consensus engine provides.
 	APIs(chain ChainReader) []rpc.API
+
+	// Close terminates any background threads maintained by the consensus engine.
+	Close() error
 }
 
 // PoW is a consensus engine based on proof-of-work.
@@ -104,23 +113,4 @@ type PoW interface {
 
 	// Hashrate returns the current mining hashrate of a PoW consensus engine.
 	Hashrate() float64
-}
-type FoundMsg struct {
-	Header     *types.Header
-	Difficulty *big.Int
-}
-type DPOSEngine interface {
-	VerifyBlock(header *types.Header) error
-
-	//verify hash in current block
-	VerifyHash(signHash common.Hash, signs []common.Signature) ([]common.Signature, error)
-
-	//verify hash in given number block
-	VerifyHashWithNumber(signHash common.Hash, signs []common.Signature, number uint64) ([]common.Signature, error)
-
-	//VerifyHashWithStocks(signHash common.Hash, signs []common.Signature, stocks map[common.Address]uint16) ([]common.Signature, error)
-
-	VerifyHashWithVerifiedSigns(signs []*common.VerifiedSign) ([]common.Signature, error)
-
-	VerifyHashWithVerifiedSignsAndNumber(signs []*common.VerifiedSign, number uint64) ([]common.Signature, error)
 }

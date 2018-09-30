@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package rpc
 
@@ -58,7 +58,7 @@ func (s *NotificationTestService) SomeSubscription(ctx context.Context, n, val i
 
 	// by explicitly creating an subscription we make sure that the subscription id is send back to the client
 	// before the first subscription.Notify is called. Otherwise the events might be send before the response
-	// for the man_subscribe method.
+	// for the eth_subscribe method.
 	subscription := notifier.CreateSubscription()
 
 	go func() {
@@ -109,7 +109,7 @@ func TestNotifications(t *testing.T) {
 	server := NewServer()
 	service := &NotificationTestService{}
 
-	if err := server.RegisterName("man", service); err != nil {
+	if err := server.RegisterName("eth", service); err != nil {
 		t.Fatalf("unable to register test service %v", err)
 	}
 
@@ -124,7 +124,7 @@ func TestNotifications(t *testing.T) {
 	val := 12345
 	request := map[string]interface{}{
 		"id":      1,
-		"method":  "man_subscribe",
+		"method":  "eth_subscribe",
 		"version": "2.0",
 		"params":  []interface{}{"someSubscription", n, val},
 	}
@@ -227,7 +227,7 @@ func waitForMessages(t *testing.T, in *json.Decoder, successes chan<- jsonSucces
 // for multiple different namespaces.
 func TestSubscriptionMultipleNamespaces(t *testing.T) {
 	var (
-		namespaces             = []string{"man", "shh", "bzz"}
+		namespaces             = []string{"eth", "shh", "bzz"}
 		server                 = NewServer()
 		service                = NotificationTestService{}
 		clientConn, serverConn = net.Pipe()

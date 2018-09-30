@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2015 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package core
 
@@ -20,20 +20,14 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/consensus"
-	"github.com/matrix/go-matrix/consensus/misc"
-	"github.com/matrix/go-matrix/core/state"
-	"github.com/matrix/go-matrix/core/types"
-	"github.com/matrix/go-matrix/core/vm"
-	"github.com/matrix/go-matrix/mandb"
-	"github.com/matrix/go-matrix/params"
-)
-
-// So we can deterministically seed different blockchains
-var (
-	canonicalSeed = 1
-	forkSeed      = 2
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/consensus"
+	"github.com/ethereum/go-ethereum/consensus/misc"
+	"github.com/ethereum/go-ethereum/core/state"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/params"
 )
 
 // BlockGen creates blocks for testing.
@@ -71,6 +65,11 @@ func (b *BlockGen) SetCoinbase(addr common.Address) {
 // SetExtra sets the extra data field of the generated block.
 func (b *BlockGen) SetExtra(data []byte) {
 	b.header.Extra = data
+}
+
+// SetNonce sets the nonce field of the generated block.
+func (b *BlockGen) SetNonce(nonce types.BlockNonce) {
+	b.header.Nonce = nonce
 }
 
 // AddTx adds a transaction to the generated block. If no coinbase has
@@ -170,7 +169,7 @@ func (b *BlockGen) OffsetTime(seconds int64) {
 // Blocks created by GenerateChain do not contain valid proof of work
 // values. Inserting them into BlockChain requires use of FakePow or
 // a similar non-validating proof of work implementation.
-func GenerateChain(config *params.ChainConfig, parent *types.Block, engine consensus.Engine, db mandb.Database, n int, gen func(int, *BlockGen)) ([]*types.Block, []types.Receipts) {
+func GenerateChain(config *params.ChainConfig, parent *types.Block, engine consensus.Engine, db ethdb.Database, n int, gen func(int, *BlockGen)) ([]*types.Block, []types.Receipts) {
 	if config == nil {
 		config = params.TestChainConfig
 	}
@@ -178,7 +177,7 @@ func GenerateChain(config *params.ChainConfig, parent *types.Block, engine conse
 	genblock := func(i int, parent *types.Block, statedb *state.StateDB) (*types.Block, types.Receipts) {
 		// TODO(karalabe): This is needed for clique, which depends on multiple blocks.
 		// It's nonetheless ugly to spin up a blockchain here. Get rid of this somehow.
-		blockchain, _ := NewBlockChain(db, nil, config, engine, vm.Config{})
+		blockchain, _ := NewBlockChain(db, nil, config, engine, vm.Config{}, nil)
 		defer blockchain.Stop()
 
 		b := &BlockGen{i: i, parent: parent, chain: blocks, chainReader: blockchain, statedb: statedb, config: config, engine: engine}
@@ -196,13 +195,14 @@ func GenerateChain(config *params.ChainConfig, parent *types.Block, engine conse
 		if config.DAOForkSupport && config.DAOForkBlock != nil && config.DAOForkBlock.Cmp(b.header.Number) == 0 {
 			misc.ApplyDAOHardFork(statedb)
 		}
-		// Execute any user modifications to the block and finalize it
+		// Execute any user modifications to the block
 		if gen != nil {
 			gen(i, b)
 		}
-
 		if b.engine != nil {
+			// Finalize and seal the block
 			block, _ := b.engine.Finalize(b.chainReader, b.header, statedb, b.txs, b.uncles, b.receipts)
+
 			// Write state changes to db
 			root, err := statedb.Commit(config.IsEIP158(b.header.Number))
 			if err != nil {
@@ -246,41 +246,14 @@ func makeHeader(chain consensus.ChainReader, parent *types.Block, state *state.S
 			Difficulty: parent.Difficulty(),
 			UncleHash:  parent.UncleHash(),
 		}),
-		GasLimit: CalcGasLimit(parent),
+		GasLimit: CalcGasLimit(parent, parent.GasLimit(), parent.GasLimit()),
 		Number:   new(big.Int).Add(parent.Number(), common.Big1),
 		Time:     time,
 	}
 }
 
-// newCanonical creates a chain database, and injects a deterministic canonical
-// chain. Depending on the full flag, if creates either a full block chain or a
-// header only chain.
-func newCanonical(engine consensus.Engine, n int, full bool) (mandb.Database, *BlockChain, error) {
-	var (
-		db      = mandb.NewMemDatabase()
-		genesis = new(Genesis).MustCommit(db)
-	)
-
-	// Initialize a fresh chain with only a genesis block
-	blockchain, _ := NewBlockChain(db, nil, params.AllEthashProtocolChanges, engine, vm.Config{})
-	// Create and inject the requested chain
-	if n == 0 {
-		return db, blockchain, nil
-	}
-	if full {
-		// Full block-chain requested
-		blocks := makeBlockChain(genesis, n, engine, db, canonicalSeed)
-		_, err := blockchain.InsertChain(blocks)
-		return db, blockchain, err
-	}
-	// Header-only chain requested
-	headers := makeHeaderChain(genesis.Header(), n, engine, db, canonicalSeed)
-	_, err := blockchain.InsertHeaderChain(headers, 1)
-	return db, blockchain, err
-}
-
 // makeHeaderChain creates a deterministic chain of headers rooted at parent.
-func makeHeaderChain(parent *types.Header, n int, engine consensus.Engine, db mandb.Database, seed int) []*types.Header {
+func makeHeaderChain(parent *types.Header, n int, engine consensus.Engine, db ethdb.Database, seed int) []*types.Header {
 	blocks := makeBlockChain(types.NewBlockWithHeader(parent), n, engine, db, seed)
 	headers := make([]*types.Header, len(blocks))
 	for i, block := range blocks {
@@ -290,7 +263,7 @@ func makeHeaderChain(parent *types.Header, n int, engine consensus.Engine, db ma
 }
 
 // makeBlockChain creates a deterministic chain of blocks rooted at parent.
-func makeBlockChain(parent *types.Block, n int, engine consensus.Engine, db mandb.Database, seed int) []*types.Block {
+func makeBlockChain(parent *types.Block, n int, engine consensus.Engine, db ethdb.Database, seed int) []*types.Block {
 	blocks, _ := GenerateChain(params.TestChainConfig, parent, engine, db, n, func(i int, b *BlockGen) {
 		b.SetCoinbase(common.Address{0: byte(seed), 19: byte(i)})
 	})

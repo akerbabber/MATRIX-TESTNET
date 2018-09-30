@@ -1,22 +1,23 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package adapters
 
 import (
+	"bufio"
 	"context"
 	"crypto/ecdsa"
 	"encoding/json"
@@ -34,11 +35,11 @@ import (
 	"time"
 
 	"github.com/docker/docker/pkg/reexec"
-	"github.com/matrix/go-matrix/log"
-	"github.com/matrix/go-matrix/node"
-	"github.com/matrix/go-matrix/p2p"
-	"github.com/matrix/go-matrix/p2p/discover"
-	"github.com/matrix/go-matrix/rpc"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/node"
+	"github.com/ethereum/go-ethereum/p2p"
+	"github.com/ethereum/go-ethereum/p2p/enode"
+	"github.com/ethereum/go-ethereum/rpc"
 	"golang.org/x/net/websocket"
 )
 
@@ -53,7 +54,7 @@ type ExecAdapter struct {
 	// simulation node are created.
 	BaseDir string
 
-	nodes map[discover.NodeID]*ExecNode
+	nodes map[enode.ID]*ExecNode
 }
 
 // NewExecAdapter returns an ExecAdapter which stores node data in
@@ -61,7 +62,7 @@ type ExecAdapter struct {
 func NewExecAdapter(baseDir string) *ExecAdapter {
 	return &ExecAdapter{
 		BaseDir: baseDir,
-		nodes:   make(map[discover.NodeID]*ExecNode),
+		nodes:   make(map[enode.ID]*ExecNode),
 	}
 }
 
@@ -103,9 +104,9 @@ func (e *ExecAdapter) NewNode(config *NodeConfig) (Node, error) {
 	conf.Stack.P2P.NAT = nil
 	conf.Stack.NoUSB = true
 
-	// listen on a random localhost port (we'll get the actual port after
-	// starting the node through the RPC admin.nodeInfo method)
-	conf.Stack.P2P.ListenAddr = "127.0.0.1:0"
+	// listen on a localhost port, which we set when we
+	// initialise NodeConfig (usually a random port)
+	conf.Stack.P2P.ListenAddr = fmt.Sprintf(":%d", config.Port)
 
 	node := &ExecNode{
 		ID:      config.ID,
@@ -121,7 +122,7 @@ func (e *ExecAdapter) NewNode(config *NodeConfig) (Node, error) {
 // ExecNode starts a simulation node by exec'ing the current binary and
 // running the configured services
 type ExecNode struct {
-	ID     discover.NodeID
+	ID     enode.ID
 	Dir    string
 	Config *execNodeConfig
 	Cmd    *exec.Cmd
@@ -190,9 +191,23 @@ func (n *ExecNode) Start(snapshots map[string][]byte) (err error) {
 	n.Cmd = cmd
 
 	// read the WebSocket address from the stderr logs
-	wsAddr, err := findWSAddr(stderrR, 10*time.Second)
-	if err != nil {
-		return fmt.Errorf("error getting WebSocket address: %s", err)
+	var wsAddr string
+	wsAddrC := make(chan string)
+	go func() {
+		s := bufio.NewScanner(stderrR)
+		for s.Scan() {
+			if strings.Contains(s.Text(), "WebSocket endpoint opened") {
+				wsAddrC <- wsAddrPattern.FindString(s.Text())
+			}
+		}
+	}()
+	select {
+	case wsAddr = <-wsAddrC:
+		if wsAddr == "" {
+			return errors.New("failed to read WebSocket address from stderr")
+		}
+	case <-time.After(10 * time.Second):
+		return errors.New("timed out waiting for WebSocket address on stderr")
 	}
 
 	// create the RPC client and load the node info
@@ -318,6 +333,21 @@ type execNodeConfig struct {
 	PeerAddrs map[string]string `json:"peer_addrs,omitempty"`
 }
 
+// ExternalIP gets an external IP address so that Enode URL is usable
+func ExternalIP() net.IP {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		log.Crit("error getting IP address", "err", err)
+	}
+	for _, addr := range addrs {
+		if ip, ok := addr.(*net.IPNet); ok && !ip.IP.IsLoopback() && !ip.IP.IsLinkLocalUnicast() {
+			return ip.IP
+		}
+	}
+	log.Warn("unable to determine explicit IP address, falling back to loopback")
+	return net.IP{127, 0, 0, 1}
+}
+
 // execP2PNode starts a devp2p node when the current binary is executed with
 // argv[0] being "p2p-node", reading the service / ID from argv[1] / argv[2]
 // and the node config from the _P2P_NODE_CONFIG environment variable
@@ -341,25 +371,11 @@ func execP2PNode() {
 	conf.Stack.P2P.PrivateKey = conf.Node.PrivateKey
 	conf.Stack.Logger = log.New("node.id", conf.Node.ID.String())
 
-	// use explicit IP address in ListenAddr so that Enode URL is usable
-	externalIP := func() string {
-		addrs, err := net.InterfaceAddrs()
-		if err != nil {
-			log.Crit("error getting IP address", "err", err)
-		}
-		for _, addr := range addrs {
-			if ip, ok := addr.(*net.IPNet); ok && !ip.IP.IsLoopback() {
-				return ip.IP.String()
-			}
-		}
-		log.Crit("unable to determine explicit IP address")
-		return ""
-	}
 	if strings.HasPrefix(conf.Stack.P2P.ListenAddr, ":") {
-		conf.Stack.P2P.ListenAddr = externalIP() + conf.Stack.P2P.ListenAddr
+		conf.Stack.P2P.ListenAddr = ExternalIP().String() + conf.Stack.P2P.ListenAddr
 	}
 	if conf.Stack.WSHost == "0.0.0.0" {
-		conf.Stack.WSHost = externalIP()
+		conf.Stack.WSHost = ExternalIP().String()
 	}
 
 	// initialize the devp2p stack
@@ -476,7 +492,7 @@ type wsRPCDialer struct {
 
 // DialRPC implements the RPCDialer interface by creating a WebSocket RPC
 // client of the given node
-func (w *wsRPCDialer) DialRPC(id discover.NodeID) (*rpc.Client, error) {
+func (w *wsRPCDialer) DialRPC(id enode.ID) (*rpc.Client, error) {
 	addr, ok := w.addrs[id.String()]
 	if !ok {
 		return nil, fmt.Errorf("unknown node: %s", id)

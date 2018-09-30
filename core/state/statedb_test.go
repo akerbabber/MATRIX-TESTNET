@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package state
 
@@ -30,16 +30,16 @@ import (
 
 	check "gopkg.in/check.v1"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/core/types"
-	"github.com/matrix/go-matrix/mandb"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/ethdb"
 )
 
 // Tests that updating a state trie does not leak any database writes prior to
 // actually committing the state.
 func TestUpdateLeaks(t *testing.T) {
 	// Create an empty state database
-	db := mandb.NewMemDatabase()
+	db := ethdb.NewMemDatabase()
 	state, _ := New(common.Hash{}, NewDatabase(db))
 
 	// Update it with some accounts
@@ -66,8 +66,8 @@ func TestUpdateLeaks(t *testing.T) {
 // only the one right before the commit.
 func TestIntermediateLeaks(t *testing.T) {
 	// Create two state databases, one transitioning to the final state, the other final from the beginning
-	transDb := mandb.NewMemDatabase()
-	finalDb := mandb.NewMemDatabase()
+	transDb := ethdb.NewMemDatabase()
+	finalDb := ethdb.NewMemDatabase()
 	transState, _ := New(common.Hash{}, NewDatabase(transDb))
 	finalState, _ := New(common.Hash{}, NewDatabase(finalDb))
 
@@ -119,10 +119,10 @@ func TestIntermediateLeaks(t *testing.T) {
 
 // TestCopy tests that copying a statedb object indeed makes the original and
 // the copy independent of each other. This test is a regression test against
-// https://github.com/matrix/go-matrix/pull/15549.
+// https://github.com/ethereum/go-ethereum/pull/15549.
 func TestCopy(t *testing.T) {
 	// Create a random state test to copy and modify "independently"
-	orig, _ := New(common.Hash{}, NewDatabase(mandb.NewMemDatabase()))
+	orig, _ := New(common.Hash{}, NewDatabase(ethdb.NewMemDatabase()))
 
 	for i := byte(0); i < 255; i++ {
 		obj := orig.GetOrNewStateObject(common.BytesToAddress([]byte{i}))
@@ -333,7 +333,7 @@ func (test *snapshotTest) String() string {
 func (test *snapshotTest) run() bool {
 	// Run all actions and create snapshots.
 	var (
-		state, _     = New(common.Hash{}, NewDatabase(mandb.NewMemDatabase()))
+		state, _     = New(common.Hash{}, NewDatabase(ethdb.NewMemDatabase()))
 		snapshotRevs = make([]int, len(test.snapshots))
 		sindex       = 0
 	)
@@ -381,11 +381,11 @@ func (test *snapshotTest) checkEqual(state, checkstate *StateDB) error {
 		checkeq("GetCodeSize", state.GetCodeSize(addr), checkstate.GetCodeSize(addr))
 		// Check storage.
 		if obj := state.getStateObject(addr); obj != nil {
-			state.ForEachStorage(addr, func(key, val common.Hash) bool {
-				return checkeq("GetState("+key.Hex()+")", val, checkstate.GetState(addr, key))
+			state.ForEachStorage(addr, func(key, value common.Hash) bool {
+				return checkeq("GetState("+key.Hex()+")", checkstate.GetState(addr, key), value)
 			})
-			checkstate.ForEachStorage(addr, func(key, checkval common.Hash) bool {
-				return checkeq("GetState("+key.Hex()+")", state.GetState(addr, key), checkval)
+			checkstate.ForEachStorage(addr, func(key, value common.Hash) bool {
+				return checkeq("GetState("+key.Hex()+")", checkstate.GetState(addr, key), value)
 			})
 		}
 		if err != nil {
@@ -422,9 +422,9 @@ func (s *StateSuite) TestTouchDelete(c *check.C) {
 }
 
 // TestCopyOfCopy tests that modified objects are carried over to the copy, and the copy of the copy.
-// See https://github.com/matrix/go-matrix/pull/15225#issuecomment-380191512
+// See https://github.com/ethereum/go-ethereum/pull/15225#issuecomment-380191512
 func TestCopyOfCopy(t *testing.T) {
-	sdb, _ := New(common.Hash{}, NewDatabase(mandb.NewMemDatabase()))
+	sdb, _ := New(common.Hash{}, NewDatabase(ethdb.NewMemDatabase()))
 	addr := common.HexToAddress("aaaa")
 	sdb.SetBalance(addr, big.NewInt(42))
 

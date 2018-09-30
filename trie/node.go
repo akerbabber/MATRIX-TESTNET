@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2014 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package trie
 
@@ -21,8 +21,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/rlp"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/rlp"
 )
 
 var indices = []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f", "[17]"}
@@ -47,9 +47,22 @@ type (
 	valueNode []byte
 )
 
+// nilValueNode is used when collapsing internal trie nodes for hashing, since
+// unset children need to serialize correctly.
+var nilValueNode = valueNode(nil)
+
 // EncodeRLP encodes a full node into the consensus RLP format.
 func (n *fullNode) EncodeRLP(w io.Writer) error {
-	return rlp.Encode(w, n.Children)
+	var nodes [17]node
+
+	for i, child := range &n.Children {
+		if child != nil {
+			nodes[i] = child
+		} else {
+			nodes[i] = nilValueNode
+		}
+	}
+	return rlp.Encode(w, nodes)
 }
 
 func (n *fullNode) copy() *fullNode   { copy := *n; return &copy }
@@ -85,7 +98,7 @@ func (n valueNode) String() string  { return n.fstring("") }
 
 func (n *fullNode) fstring(ind string) string {
 	resp := fmt.Sprintf("[\n%s  ", ind)
-	for i, node := range n.Children {
+	for i, node := range &n.Children {
 		if node == nil {
 			resp += fmt.Sprintf("%s: <nil> ", indices[i])
 		} else {

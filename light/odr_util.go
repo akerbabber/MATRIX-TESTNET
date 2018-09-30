@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package light
 
@@ -20,12 +20,12 @@ import (
 	"bytes"
 	"context"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/core"
-	"github.com/matrix/go-matrix/core/rawdb"
-	"github.com/matrix/go-matrix/core/types"
-	"github.com/matrix/go-matrix/crypto"
-	"github.com/matrix/go-matrix/rlp"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/rawdb"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/rlp"
 )
 
 var sha3_nil = crypto.Keccak256Hash(nil)
@@ -53,16 +53,16 @@ func GetHeaderByNumber(ctx context.Context, odr OdrBackend, number uint64) (*typ
 		for chtCount > 0 && canonicalHash != sectionHead && canonicalHash != (common.Hash{}) {
 			chtCount--
 			if chtCount > 0 {
-				sectionHeadNum = chtCount*CHTFrequencyClient - 1
+				sectionHeadNum = chtCount*odr.IndexerConfig().ChtSize - 1
 				sectionHead = odr.ChtIndexer().SectionHead(chtCount - 1)
 				canonicalHash = rawdb.ReadCanonicalHash(db, sectionHeadNum)
 			}
 		}
 	}
-	if number >= chtCount*CHTFrequencyClient {
+	if number >= chtCount*odr.IndexerConfig().ChtSize {
 		return nil, ErrNoTrustedCht
 	}
-	r := &ChtRequest{ChtRoot: GetChtRoot(db, chtCount-1, sectionHead), ChtNum: chtCount - 1, BlockNum: number}
+	r := &ChtRequest{ChtRoot: GetChtRoot(db, chtCount-1, sectionHead), ChtNum: chtCount - 1, BlockNum: number, Config: odr.IndexerConfig()}
 	if err := odr.Retrieve(ctx, r); err != nil {
 		return nil, err
 	}
@@ -175,9 +175,9 @@ func GetBlockLogs(ctx context.Context, odr OdrBackend, hash common.Hash, number 
 
 // GetBloomBits retrieves a batch of compressed bloomBits vectors belonging to the given bit index and section indexes
 func GetBloomBits(ctx context.Context, odr OdrBackend, bitIdx uint, sectionIdxList []uint64) ([][]byte, error) {
-	db := odr.Database()
-	result := make([][]byte, len(sectionIdxList))
 	var (
+		db      = odr.Database()
+		result  = make([][]byte, len(sectionIdxList))
 		reqList []uint64
 		reqIdx  []int
 	)
@@ -193,7 +193,7 @@ func GetBloomBits(ctx context.Context, odr OdrBackend, bitIdx uint, sectionIdxLi
 		for bloomTrieCount > 0 && canonicalHash != sectionHead && canonicalHash != (common.Hash{}) {
 			bloomTrieCount--
 			if bloomTrieCount > 0 {
-				sectionHeadNum = bloomTrieCount*BloomTrieFrequency - 1
+				sectionHeadNum = bloomTrieCount*odr.IndexerConfig().BloomTrieSize - 1
 				sectionHead = odr.BloomTrieIndexer().SectionHead(bloomTrieCount - 1)
 				canonicalHash = rawdb.ReadCanonicalHash(db, sectionHeadNum)
 			}
@@ -201,7 +201,7 @@ func GetBloomBits(ctx context.Context, odr OdrBackend, bitIdx uint, sectionIdxLi
 	}
 
 	for i, sectionIdx := range sectionIdxList {
-		sectionHead := rawdb.ReadCanonicalHash(db, (sectionIdx+1)*BloomTrieFrequency-1)
+		sectionHead := rawdb.ReadCanonicalHash(db, (sectionIdx+1)*odr.IndexerConfig().BloomSize-1)
 		// if we don't have the canonical hash stored for this section head number, we'll still look for
 		// an entry with a zero sectionHead (we store it with zero section head too if we don't know it
 		// at the time of the retrieval)
@@ -209,6 +209,7 @@ func GetBloomBits(ctx context.Context, odr OdrBackend, bitIdx uint, sectionIdxLi
 		if err == nil {
 			result[i] = bloomBits
 		} else {
+			// TODO(rjl493456442) Convert sectionIndex to BloomTrie relative index
 			if sectionIdx >= bloomTrieCount {
 				return nil, ErrNoTrustedBloomTrie
 			}
@@ -220,7 +221,8 @@ func GetBloomBits(ctx context.Context, odr OdrBackend, bitIdx uint, sectionIdxLi
 		return result, nil
 	}
 
-	r := &BloomRequest{BloomTrieRoot: GetBloomTrieRoot(db, bloomTrieCount-1, sectionHead), BloomTrieNum: bloomTrieCount - 1, BitIdx: bitIdx, SectionIdxList: reqList}
+	r := &BloomRequest{BloomTrieRoot: GetBloomTrieRoot(db, bloomTrieCount-1, sectionHead), BloomTrieNum: bloomTrieCount - 1,
+		BitIdx: bitIdx, SectionIndexList: reqList, Config: odr.IndexerConfig()}
 	if err := odr.Retrieve(ctx, r); err != nil {
 		return nil, err
 	} else {

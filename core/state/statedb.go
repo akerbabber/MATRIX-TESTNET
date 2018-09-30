@@ -1,20 +1,20 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2014 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
-// Package state provides a caching layer atop the Matrix state trie.
+// Package state provides a caching layer atop the Ethereum state trie.
 package state
 
 import (
@@ -23,13 +23,12 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/core/types"
-	"github.com/matrix/go-matrix/crypto"
-	"github.com/matrix/go-matrix/log"
-	"github.com/matrix/go-matrix/params"
-	"github.com/matrix/go-matrix/rlp"
-	"github.com/matrix/go-matrix/trie"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/ethereum/go-ethereum/trie"
 )
 
 type revision struct {
@@ -45,7 +44,7 @@ var (
 	emptyCode = crypto.Keccak256Hash(nil)
 )
 
-// StateDBs within the matrix protocol are used to store anything
+// StateDBs within the ethereum protocol are used to store anything
 // within the merkle trie. StateDBs take care of caching and storing
 // nested states. It's the general query interface to retrieve:
 // * Contracts
@@ -170,9 +169,20 @@ func (self *StateDB) Preimages() map[common.Hash][]byte {
 	return self.preimages
 }
 
+// AddRefund adds gas to the refund counter
 func (self *StateDB) AddRefund(gas uint64) {
 	self.journal.append(refundChange{prev: self.refund})
 	self.refund += gas
+}
+
+// SubRefund removes gas from the refund counter.
+// This method will panic if the refund counter goes below zero
+func (self *StateDB) SubRefund(gas uint64) {
+	self.journal.append(refundChange{prev: self.refund})
+	if gas > self.refund {
+		panic("Refund counter below zero")
+	}
+	self.refund -= gas
 }
 
 // Exist reports whether the given account address exists in the state.
@@ -203,7 +213,7 @@ func (self *StateDB) GetNonce(addr common.Address) uint64 {
 		return stateObject.Nonce()
 	}
 
-	return 0 | params.NonceAddOne //YY
+	return 0
 }
 
 func (self *StateDB) GetCode(addr common.Address) []byte {
@@ -237,10 +247,20 @@ func (self *StateDB) GetCodeHash(addr common.Address) common.Hash {
 	return common.BytesToHash(stateObject.CodeHash())
 }
 
-func (self *StateDB) GetState(addr common.Address, bhash common.Hash) common.Hash {
+// GetState retrieves a value from the given account's storage trie.
+func (self *StateDB) GetState(addr common.Address, hash common.Hash) common.Hash {
 	stateObject := self.getStateObject(addr)
 	if stateObject != nil {
-		return stateObject.GetState(self.db, bhash)
+		return stateObject.GetState(self.db, hash)
+	}
+	return common.Hash{}
+}
+
+// GetCommittedState retrieves a value from the given account's committed storage trie.
+func (self *StateDB) GetCommittedState(addr common.Address, hash common.Hash) common.Hash {
+	stateObject := self.getStateObject(addr)
+	if stateObject != nil {
+		return stateObject.GetCommittedState(self.db, hash)
 	}
 	return common.Hash{}
 }
@@ -299,7 +319,7 @@ func (self *StateDB) SetBalance(addr common.Address, amount *big.Int) {
 func (self *StateDB) SetNonce(addr common.Address, nonce uint64) {
 	stateObject := self.GetOrNewStateObject(addr)
 	if stateObject != nil {
-		stateObject.SetNonce(nonce | params.NonceAddOne) //YY
+		stateObject.SetNonce(nonce)
 	}
 }
 
@@ -404,7 +424,7 @@ func (self *StateDB) GetOrNewStateObject(addr common.Address) *stateObject {
 func (self *StateDB) createObject(addr common.Address) (newobj, prev *stateObject) {
 	prev = self.getStateObject(addr)
 	newobj = newObject(self, addr, Account{})
-	newobj.setNonce(0 | params.NonceAddOne) // sets the object to dirty    //YY
+	newobj.setNonce(0) // sets the object to dirty
 	if prev == nil {
 		self.journal.append(createObjectChange{account: &addr})
 	} else {
@@ -436,19 +456,14 @@ func (db *StateDB) ForEachStorage(addr common.Address, cb func(key, value common
 	if so == nil {
 		return
 	}
-
-	// When iterating over the storage check the cache first
-	for h, value := range so.cachedStorage {
-		cb(h, value)
-	}
-
 	it := trie.NewIterator(so.getTrie(db.db).NodeIterator(nil))
 	for it.Next() {
-		// ignore cached values
 		key := common.BytesToHash(db.trie.GetKey(it.Key))
-		if _, ok := so.cachedStorage[key]; !ok {
-			cb(key, common.BytesToHash(it.Value))
+		if value, dirty := so.dirtyStorage[key]; dirty {
+			cb(key, value)
+			continue
 		}
+		cb(key, common.BytesToHash(it.Value))
 	}
 }
 
@@ -472,7 +487,7 @@ func (self *StateDB) Copy() *StateDB {
 	}
 	// Copy the dirty states, logs, and preimages
 	for addr := range self.journal.dirties {
-		// As documented [here](https://github.com/matrix/go-matrix/pull/16485#issuecomment-380438527),
+		// As documented [here](https://github.com/ethereum/go-ethereum/pull/16485#issuecomment-380438527),
 		// and in the Finalise-method, there is a case where an object is in the journal but not
 		// in the stateObjects: OOG after touch on ripeMD prior to Byzantium. Thus, we need to check for
 		// nil
@@ -490,10 +505,13 @@ func (self *StateDB) Copy() *StateDB {
 			state.stateObjectsDirty[addr] = struct{}{}
 		}
 	}
-
 	for hash, logs := range self.logs {
-		state.logs[hash] = make([]*types.Log, len(logs))
-		copy(state.logs[hash], logs)
+		cpy := make([]*types.Log, len(logs))
+		for i, l := range logs {
+			cpy[i] = new(types.Log)
+			*cpy[i] = *l
+		}
+		state.logs[hash] = cpy
 	}
 	for hash, preimage := range self.preimages {
 		state.preimages[hash] = preimage
@@ -597,7 +615,7 @@ func (s *StateDB) Commit(deleteEmptyObjects bool) (root common.Hash, err error) 
 		case isDirty:
 			// Write any contract code associated with the state object
 			if stateObject.code != nil && stateObject.dirtyCode {
-				s.db.TrieDB().Insert(common.BytesToHash(stateObject.CodeHash()), stateObject.code)
+				s.db.TrieDB().InsertBlob(common.BytesToHash(stateObject.CodeHash()), stateObject.code)
 				stateObject.dirtyCode = false
 			}
 			// Write any storage changes in the state object to its storage trie.

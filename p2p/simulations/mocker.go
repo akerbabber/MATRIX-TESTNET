@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 // Package simulations simulates p2p networks.
 // A mocker simulates starting and stopping real nodes in a network.
@@ -24,8 +24,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/matrix/go-matrix/log"
-	"github.com/matrix/go-matrix/p2p/discover"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/p2p/enode"
+	"github.com/ethereum/go-ethereum/p2p/simulations/adapters"
 )
 
 //a map of mocker names to its function
@@ -102,7 +103,13 @@ func startStop(net *Network, quit chan struct{}, nodeCount int) {
 func probabilistic(net *Network, quit chan struct{}, nodeCount int) {
 	nodes, err := connectNodesInRing(net, nodeCount)
 	if err != nil {
-		panic("Could not startup node network for mocker")
+		select {
+		case <-quit:
+			//error may be due to abortion of mocking; so the quit channel is closed
+			return
+		default:
+			panic("Could not startup node network for mocker")
+		}
 	}
 	for {
 		select {
@@ -143,15 +150,15 @@ func probabilistic(net *Network, quit chan struct{}, nodeCount int) {
 			log.Debug(fmt.Sprintf("node %v shutting down", nodes[i]))
 			err := net.Stop(nodes[i])
 			if err != nil {
-				log.Error(fmt.Sprintf("Error stopping node %s", nodes[i]))
+				log.Error("Error stopping node", "node", nodes[i])
 				wg.Done()
 				continue
 			}
-			go func(id discover.NodeID) {
+			go func(id enode.ID) {
 				time.Sleep(randWait)
 				err := net.Start(id)
 				if err != nil {
-					log.Error(fmt.Sprintf("Error starting node %s", id))
+					log.Error("Error starting node", "node", id)
 				}
 				wg.Done()
 			}(nodes[i])
@@ -162,12 +169,13 @@ func probabilistic(net *Network, quit chan struct{}, nodeCount int) {
 }
 
 //connect nodeCount number of nodes in a ring
-func connectNodesInRing(net *Network, nodeCount int) ([]discover.NodeID, error) {
-	ids := make([]discover.NodeID, nodeCount)
+func connectNodesInRing(net *Network, nodeCount int) ([]enode.ID, error) {
+	ids := make([]enode.ID, nodeCount)
 	for i := 0; i < nodeCount; i++ {
-		node, err := net.NewNode()
+		conf := adapters.RandomNodeConfig()
+		node, err := net.NewNodeWithConfig(conf)
 		if err != nil {
-			log.Error("Error creating a node! %s", err)
+			log.Error("Error creating a node!", "err", err)
 			return nil, err
 		}
 		ids[i] = node.ID()
@@ -175,7 +183,7 @@ func connectNodesInRing(net *Network, nodeCount int) ([]discover.NodeID, error) 
 
 	for _, id := range ids {
 		if err := net.Start(id); err != nil {
-			log.Error("Error starting a node! %s", err)
+			log.Error("Error starting a node!", "err", err)
 			return nil, err
 		}
 		log.Debug(fmt.Sprintf("node %v starting up", id))
@@ -183,7 +191,7 @@ func connectNodesInRing(net *Network, nodeCount int) ([]discover.NodeID, error) 
 	for i, id := range ids {
 		peerID := ids[(i+1)%len(ids)]
 		if err := net.Connect(id, peerID); err != nil {
-			log.Error("Error connecting a node to a peer! %s", err)
+			log.Error("Error connecting a node to a peer!", "err", err)
 			return nil, err
 		}
 	}

@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2017 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package vm
 
@@ -20,8 +20,8 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/params"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/params"
 )
 
 type twoOperandTest struct {
@@ -30,19 +30,23 @@ type twoOperandTest struct {
 	expected string
 }
 
-func testTwoOperandOp(t *testing.T, tests []twoOperandTest, opFn func(pc *uint64, evm *EVM, contract *Contract, memory *Memory, stack *Stack) ([]byte, error)) {
+func testTwoOperandOp(t *testing.T, tests []twoOperandTest, opFn func(pc *uint64, interpreter *EVMInterpreter, contract *Contract, memory *Memory, stack *Stack) ([]byte, error)) {
 	var (
-		env   = NewEVM(Context{}, nil, params.TestChainConfig, Config{})
-		stack = newstack()
-		pc    = uint64(0)
+		env            = NewEVM(Context{}, nil, params.TestChainConfig, Config{})
+		stack          = newstack()
+		pc             = uint64(0)
+		evmInterpreter = NewEVMInterpreter(env, env.vmConfig)
 	)
+
+	env.interpreter = evmInterpreter
+	evmInterpreter.intPool = poolOfIntPools.get()
 	for i, test := range tests {
 		x := new(big.Int).SetBytes(common.Hex2Bytes(test.x))
 		shift := new(big.Int).SetBytes(common.Hex2Bytes(test.y))
 		expected := new(big.Int).SetBytes(common.Hex2Bytes(test.expected))
 		stack.push(x)
 		stack.push(shift)
-		opFn(&pc, env, nil, nil, stack)
+		opFn(&pc, evmInterpreter, nil, nil, stack)
 		actual := stack.pop()
 		if actual.Cmp(expected) != 0 {
 			t.Errorf("Testcase %d, expected  %v, got %v", i, expected, actual)
@@ -50,13 +54,13 @@ func testTwoOperandOp(t *testing.T, tests []twoOperandTest, opFn func(pc *uint64
 		// Check pool usage
 		// 1.pool is not allowed to contain anything on the stack
 		// 2.pool is not allowed to contain the same pointers twice
-		if env.interpreter.intPool.pool.len() > 0 {
+		if evmInterpreter.intPool.pool.len() > 0 {
 
 			poolvals := make(map[*big.Int]struct{})
 			poolvals[actual] = struct{}{}
 
-			for env.interpreter.intPool.pool.len() > 0 {
-				key := env.interpreter.intPool.get()
+			for evmInterpreter.intPool.pool.len() > 0 {
+				key := evmInterpreter.intPool.get()
 				if _, exist := poolvals[key]; exist {
 					t.Errorf("Testcase %d, pool contains double-entry", i)
 				}
@@ -64,13 +68,18 @@ func testTwoOperandOp(t *testing.T, tests []twoOperandTest, opFn func(pc *uint64
 			}
 		}
 	}
+	poolOfIntPools.put(evmInterpreter.intPool)
 }
 
 func TestByteOp(t *testing.T) {
 	var (
-		env   = NewEVM(Context{}, nil, params.TestChainConfig, Config{})
-		stack = newstack()
+		env            = NewEVM(Context{}, nil, params.TestChainConfig, Config{})
+		stack          = newstack()
+		evmInterpreter = NewEVMInterpreter(env, env.vmConfig)
 	)
+
+	env.interpreter = evmInterpreter
+	evmInterpreter.intPool = poolOfIntPools.get()
 	tests := []struct {
 		v        string
 		th       uint64
@@ -91,16 +100,17 @@ func TestByteOp(t *testing.T) {
 		th := new(big.Int).SetUint64(test.th)
 		stack.push(val)
 		stack.push(th)
-		opByte(&pc, env, nil, nil, stack)
+		opByte(&pc, evmInterpreter, nil, nil, stack)
 		actual := stack.pop()
 		if actual.Cmp(test.expected) != 0 {
 			t.Fatalf("Expected  [%v] %v:th byte to be %v, was %v.", test.v, test.th, test.expected, actual)
 		}
 	}
+	poolOfIntPools.put(evmInterpreter.intPool)
 }
 
 func TestSHL(t *testing.T) {
-	// Testcases from https://github.com/matrix/EIPs/blob/master/EIPS/eip-145.md#shl-shift-left
+	// Testcases from https://github.com/ethereum/EIPs/blob/master/EIPS/eip-145.md#shl-shift-left
 	tests := []twoOperandTest{
 		{"0000000000000000000000000000000000000000000000000000000000000001", "00", "0000000000000000000000000000000000000000000000000000000000000001"},
 		{"0000000000000000000000000000000000000000000000000000000000000001", "01", "0000000000000000000000000000000000000000000000000000000000000002"},
@@ -118,7 +128,7 @@ func TestSHL(t *testing.T) {
 }
 
 func TestSHR(t *testing.T) {
-	// Testcases from https://github.com/matrix/EIPs/blob/master/EIPS/eip-145.md#shr-logical-shift-right
+	// Testcases from https://github.com/ethereum/EIPs/blob/master/EIPS/eip-145.md#shr-logical-shift-right
 	tests := []twoOperandTest{
 		{"0000000000000000000000000000000000000000000000000000000000000001", "00", "0000000000000000000000000000000000000000000000000000000000000001"},
 		{"0000000000000000000000000000000000000000000000000000000000000001", "01", "0000000000000000000000000000000000000000000000000000000000000000"},
@@ -136,7 +146,7 @@ func TestSHR(t *testing.T) {
 }
 
 func TestSAR(t *testing.T) {
-	// Testcases from https://github.com/matrix/EIPs/blob/master/EIPS/eip-145.md#sar-arithmetic-shift-right
+	// Testcases from https://github.com/ethereum/EIPs/blob/master/EIPS/eip-145.md#sar-arithmetic-shift-right
 	tests := []twoOperandTest{
 		{"0000000000000000000000000000000000000000000000000000000000000001", "00", "0000000000000000000000000000000000000000000000000000000000000001"},
 		{"0000000000000000000000000000000000000000000000000000000000000001", "01", "0000000000000000000000000000000000000000000000000000000000000000"},
@@ -196,11 +206,15 @@ func TestSLT(t *testing.T) {
 	testTwoOperandOp(t, tests, opSlt)
 }
 
-func opBenchmark(bench *testing.B, op func(pc *uint64, evm *EVM, contract *Contract, memory *Memory, stack *Stack) ([]byte, error), args ...string) {
+func opBenchmark(bench *testing.B, op func(pc *uint64, interpreter *EVMInterpreter, contract *Contract, memory *Memory, stack *Stack) ([]byte, error), args ...string) {
 	var (
-		env   = NewEVM(Context{}, nil, params.TestChainConfig, Config{})
-		stack = newstack()
+		env            = NewEVM(Context{}, nil, params.TestChainConfig, Config{})
+		stack          = newstack()
+		evmInterpreter = NewEVMInterpreter(env, env.vmConfig)
 	)
+
+	env.interpreter = evmInterpreter
+	evmInterpreter.intPool = poolOfIntPools.get()
 	// convert args
 	byteArgs := make([][]byte, len(args))
 	for i, arg := range args {
@@ -213,9 +227,10 @@ func opBenchmark(bench *testing.B, op func(pc *uint64, evm *EVM, contract *Contr
 			a := new(big.Int).SetBytes(arg)
 			stack.push(a)
 		}
-		op(&pc, env, nil, nil, stack)
+		op(&pc, evmInterpreter, nil, nil, stack)
 		stack.pop()
 	}
+	poolOfIntPools.put(evmInterpreter.intPool)
 }
 
 func BenchmarkOpAdd64(b *testing.B) {
@@ -424,4 +439,53 @@ func BenchmarkOpSAR(b *testing.B) {
 func BenchmarkOpIsZero(b *testing.B) {
 	x := "FBCDEF090807060504030201ffffffffFBCDEF090807060504030201ffffffff"
 	opBenchmark(b, opIszero, x)
+}
+
+func TestOpMstore(t *testing.T) {
+	var (
+		env            = NewEVM(Context{}, nil, params.TestChainConfig, Config{})
+		stack          = newstack()
+		mem            = NewMemory()
+		evmInterpreter = NewEVMInterpreter(env, env.vmConfig)
+	)
+
+	env.interpreter = evmInterpreter
+	evmInterpreter.intPool = poolOfIntPools.get()
+	mem.Resize(64)
+	pc := uint64(0)
+	v := "abcdef00000000000000abba000000000deaf000000c0de00100000000133700"
+	stack.pushN(new(big.Int).SetBytes(common.Hex2Bytes(v)), big.NewInt(0))
+	opMstore(&pc, evmInterpreter, nil, mem, stack)
+	if got := common.Bytes2Hex(mem.Get(0, 32)); got != v {
+		t.Fatalf("Mstore fail, got %v, expected %v", got, v)
+	}
+	stack.pushN(big.NewInt(0x1), big.NewInt(0))
+	opMstore(&pc, evmInterpreter, nil, mem, stack)
+	if common.Bytes2Hex(mem.Get(0, 32)) != "0000000000000000000000000000000000000000000000000000000000000001" {
+		t.Fatalf("Mstore failed to overwrite previous value")
+	}
+	poolOfIntPools.put(evmInterpreter.intPool)
+}
+
+func BenchmarkOpMstore(bench *testing.B) {
+	var (
+		env            = NewEVM(Context{}, nil, params.TestChainConfig, Config{})
+		stack          = newstack()
+		mem            = NewMemory()
+		evmInterpreter = NewEVMInterpreter(env, env.vmConfig)
+	)
+
+	env.interpreter = evmInterpreter
+	evmInterpreter.intPool = poolOfIntPools.get()
+	mem.Resize(64)
+	pc := uint64(0)
+	memStart := big.NewInt(0)
+	value := big.NewInt(0x1337)
+
+	bench.ResetTimer()
+	for i := 0; i < bench.N; i++ {
+		stack.pushN(value, memStart)
+		opMstore(&pc, evmInterpreter, nil, mem, stack)
+	}
+	poolOfIntPools.put(evmInterpreter.intPool)
 }

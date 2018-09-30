@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2018 The go-ethereum Authors
+// This file is part of go-ethereum.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// go-ethereum is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// go-ethereum is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU General Public License
+// along with go-ethereum. If not, see <http://www.gnu.org/licenses/>.
 
 // signer is a utility that can be used so sign transactions and
 // arbitrary data.
@@ -35,20 +35,20 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/matrix/go-matrix/cmd/utils"
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/crypto"
-	"github.com/matrix/go-matrix/log"
-	"github.com/matrix/go-matrix/node"
-	"github.com/matrix/go-matrix/rpc"
-	"github.com/matrix/go-matrix/signer/core"
-	"github.com/matrix/go-matrix/signer/rules"
-	"github.com/matrix/go-matrix/signer/storage"
+	"github.com/ethereum/go-ethereum/cmd/utils"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/node"
+	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/ethereum/go-ethereum/signer/core"
+	"github.com/ethereum/go-ethereum/signer/rules"
+	"github.com/ethereum/go-ethereum/signer/storage"
 	"gopkg.in/urfave/cli.v1"
 )
 
 // ExternalAPIVersion -- see extapi_changelog.md
-const ExternalAPIVersion = "2.0.0"
+const ExternalAPIVersion = "3.0.0"
 
 // InternalAPIVersion -- see intapi_changelog.md
 const InternalAPIVersion = "2.0.0"
@@ -69,6 +69,10 @@ var (
 		Name:  "loglevel",
 		Value: 4,
 		Usage: "log level to emit to the screen",
+	}
+	advancedMode = cli.BoolFlag{
+		Name:  "advanced",
+		Usage: "If enabled, issues warnings instead of rejections for suspicious requests. Default off",
 	}
 	keystoreFlag = cli.StringFlag{
 		Name:  "keystore",
@@ -170,7 +174,7 @@ remove any stored credential for that address (keyfile)
 
 func init() {
 	app.Name = "Clef"
-	app.Usage = "Manage Matrix account operations"
+	app.Usage = "Manage Ethereum account operations"
 	app.Flags = []cli.Flag{
 		logLevelFlag,
 		keystoreFlag,
@@ -191,6 +195,7 @@ func init() {
 		ruleFlag,
 		stdiouiFlag,
 		testFlag,
+		advancedMode,
 	}
 	app.Action = signer
 	app.Commands = []cli.Command{initCommand, attestCommand, addCredentialCommand}
@@ -225,7 +230,7 @@ func initializeSecrets(c *cli.Context) error {
 	if _, err := os.Stat(location); err == nil {
 		return fmt.Errorf("file %v already exists, will not overwrite", location)
 	}
-	err = ioutil.WriteFile(location, masterSeed, 0700)
+	err = ioutil.WriteFile(location, masterSeed, 0400)
 	if err != nil {
 		return err
 	}
@@ -384,7 +389,8 @@ func signer(c *cli.Context) error {
 		c.String(keystoreFlag.Name),
 		c.Bool(utils.NoUSBFlag.Name),
 		ui, db,
-		c.Bool(utils.LightKDFFlag.Name))
+		c.Bool(utils.LightKDFFlag.Name),
+		c.Bool(advancedMode.Name))
 
 	api = apiImpl
 
@@ -415,7 +421,7 @@ func signer(c *cli.Context) error {
 
 		// start http server
 		httpEndpoint := fmt.Sprintf("%s:%d", c.String(utils.RPCListenAddrFlag.Name), c.Int(rpcPortFlag.Name))
-		listener, _, err := rpc.StartHTTPEndpoint(httpEndpoint, rpcAPI, []string{"account"}, cors, vhosts)
+		listener, _, err := rpc.StartHTTPEndpoint(httpEndpoint, rpcAPI, []string{"account"}, cors, vhosts, rpc.DefaultHTTPTimeouts)
 		if err != nil {
 			utils.Fatalf("Could not start RPC api: %v", err)
 		}
@@ -540,14 +546,14 @@ func readMasterKey(ctx *cli.Context) ([]byte, error) {
 
 // checkFile is a convenience function to check if a file
 // * exists
-// * is mode 0600
+// * is mode 0400
 func checkFile(filename string) error {
 	info, err := os.Stat(filename)
 	if err != nil {
 		return fmt.Errorf("failed stat on %s: %v", filename, err)
 	}
 	// Check the unix permission bits
-	if info.Mode().Perm()&077 != 0 {
+	if info.Mode().Perm()&0377 != 0 {
 		return fmt.Errorf("file (%v) has insecure file permissions (%v)", filename, info.Mode().String())
 	}
 	return nil

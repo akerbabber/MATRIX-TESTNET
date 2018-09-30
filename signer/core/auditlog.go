@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2018 The go-ethereum Authors
+// This file is part of go-ethereum.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// go-ethereum is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// go-ethereum is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU General Public License
+// along with go-ethereum. If not, see <http://www.gnu.org/licenses/>.
 
 package core
 
@@ -21,11 +21,11 @@ import (
 
 	"encoding/json"
 
-	"github.com/matrix/go-matrix/accounts"
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/common/hexutil"
-	"github.com/matrix/go-matrix/internal/manapi"
-	"github.com/matrix/go-matrix/log"
+	"github.com/ethereum/go-ethereum/accounts"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/internal/ethapi"
+	"github.com/ethereum/go-ethereum/log"
 )
 
 type AuditLogger struct {
@@ -33,11 +33,10 @@ type AuditLogger struct {
 	api ExternalAPI
 }
 
-func (l *AuditLogger) List(ctx context.Context) (Accounts, error) {
+func (l *AuditLogger) List(ctx context.Context) ([]common.Address, error) {
 	l.log.Info("List", "type", "request", "metadata", MetadataFromContext(ctx).String())
 	res, e := l.api.List(ctx)
-
-	l.log.Info("List", "type", "response", "data", res.String())
+	l.log.Info("List", "type", "response", "data", res)
 
 	return res, e
 }
@@ -46,7 +45,7 @@ func (l *AuditLogger) New(ctx context.Context) (accounts.Account, error) {
 	return l.api.New(ctx)
 }
 
-func (l *AuditLogger) SignTransaction(ctx context.Context, args SendTxArgs, methodSelector *string) (*manapi.SignTransactionResult, error) {
+func (l *AuditLogger) SignTransaction(ctx context.Context, args SendTxArgs, methodSelector *string) (*ethapi.SignTransactionResult, error) {
 	sel := "<nil>"
 	if methodSelector != nil {
 		sel = *methodSelector
@@ -72,14 +71,6 @@ func (l *AuditLogger) Sign(ctx context.Context, addr common.MixedcaseAddress, da
 	return b, e
 }
 
-func (l *AuditLogger) EcRecover(ctx context.Context, data, sig hexutil.Bytes) (common.Address, error) {
-	l.log.Info("EcRecover", "type", "request", "metadata", MetadataFromContext(ctx).String(),
-		"data", common.Bytes2Hex(data))
-	a, e := l.api.EcRecover(ctx, data, sig)
-	l.log.Info("EcRecover", "type", "response", "addr", a.String(), "error", e)
-	return a, e
-}
-
 func (l *AuditLogger) Export(ctx context.Context, addr common.Address) (json.RawMessage, error) {
 	l.log.Info("Export", "type", "request", "metadata", MetadataFromContext(ctx).String(),
 		"addr", addr.Hex())
@@ -89,14 +80,14 @@ func (l *AuditLogger) Export(ctx context.Context, addr common.Address) (json.Raw
 	return j, e
 }
 
-func (l *AuditLogger) Import(ctx context.Context, keyJSON json.RawMessage) (Account, error) {
-	// Don't actually log the json contents
-	l.log.Info("Import", "type", "request", "metadata", MetadataFromContext(ctx).String(),
-		"keyJSON size", len(keyJSON))
-	a, e := l.api.Import(ctx, keyJSON)
-	l.log.Info("Import", "type", "response", "addr", a.String(), "error", e)
-	return a, e
-}
+//func (l *AuditLogger) Import(ctx context.Context, keyJSON json.RawMessage) (Account, error) {
+//	// Don't actually log the json contents
+//	l.log.Info("Import", "type", "request", "metadata", MetadataFromContext(ctx).String(),
+//		"keyJSON size", len(keyJSON))
+//	a, e := l.api.Import(ctx, keyJSON)
+//	l.log.Info("Import", "type", "response", "addr", a.String(), "error", e)
+//	return a, e
+//}
 
 func NewAuditLogger(path string, api ExternalAPI) (*AuditLogger, error) {
 	l := log.New("api", "signer")

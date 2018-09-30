@@ -1,33 +1,36 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package miner
 
 import (
 	"testing"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/core/types"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 )
 
-// noopHeaderRetriever is an implementation of headerRetriever that always
+// noopChainRetriever is an implementation of headerRetriever that always
 // returns nil for any requested headers.
-type noopHeaderRetriever struct{}
+type noopChainRetriever struct{}
 
-func (r *noopHeaderRetriever) GetHeaderByNumber(number uint64) *types.Header {
+func (r *noopChainRetriever) GetHeaderByNumber(number uint64) *types.Header {
+	return nil
+}
+func (r *noopChainRetriever) GetBlockByNumber(number uint64) *types.Block {
 	return nil
 }
 
@@ -36,7 +39,7 @@ func (r *noopHeaderRetriever) GetHeaderByNumber(number uint64) *types.Header {
 func TestUnconfirmedInsertBounds(t *testing.T) {
 	limit := uint(10)
 
-	pool := newUnconfirmedBlocks(new(noopHeaderRetriever), limit)
+	pool := newUnconfirmedBlocks(new(noopChainRetriever), limit)
 	for depth := uint64(0); depth < 2*uint64(limit); depth++ {
 		// Insert multiple blocks for the same level just to stress it
 		for i := 0; i < int(depth); i++ {
@@ -58,7 +61,7 @@ func TestUnconfirmedShifts(t *testing.T) {
 	// Create a pool with a few blocks on various depths
 	limit, start := uint(10), uint64(25)
 
-	pool := newUnconfirmedBlocks(new(noopHeaderRetriever), limit)
+	pool := newUnconfirmedBlocks(new(noopChainRetriever), limit)
 	for depth := start; depth < start+uint64(limit); depth++ {
 		pool.Insert(depth, common.Hash([32]byte{byte(depth)}))
 	}

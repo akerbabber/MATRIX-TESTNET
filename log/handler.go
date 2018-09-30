@@ -1,18 +1,3 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
-//
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
-//
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 package log
 
 import (
@@ -22,7 +7,6 @@ import (
 	"os"
 	"reflect"
 	"sync"
-	"time"
 
 	"io/ioutil"
 	"path/filepath"
@@ -95,8 +79,6 @@ func FileHandler(path string, fmtr Format) (Handler, error) {
 type countingWriter struct {
 	w     io.WriteCloser // the wrapped object
 	count uint           // number of bytes written
-	lock    *sync.Mutex
-	gapTime time.Time
 }
 
 // Write increments the byte counter by the number of bytes written.
@@ -152,7 +134,6 @@ func prepFile(path string) (*countingWriter, error) {
 // RotatingFileHandler returns a handler which writes log records to file chunks
 // at the given path. When a file's size reaches the limit, the handler creates
 // a new file named after the timestamp of the first log record it will contain.
-var elapseTime = 1 * time.Hour
 func RotatingFileHandler(path string, limit uint, formatter Format) (Handler, error) {
 	if err := os.MkdirAll(path, 0700); err != nil {
 		return nil, err
@@ -167,54 +148,26 @@ func RotatingFileHandler(path string, limit uint, formatter Format) (Handler, er
 		last--
 	}
 	var counter *countingWriter
-	/*if last >= 0 {
-
-		lenfile := files[last].Size()
-
-		if last >= 0 && /files[last].Size()/ lenfile < int64(limit) {
-			// Open the last file, and continue to write into it until it's size reaches the limit.
-			if counter, err = prepFile(filepath.Join(path, files[last].Name())); err != nil {
-				//return nil, err
-			}
+	if last >= 0 && files[last].Size() < int64(limit) {
+		// Open the last file, and continue to write into it until it's size reaches the limit.
+		if counter, err = prepFile(filepath.Join(path, files[last].Name())); err != nil {
+			return nil, err
 		}
-	}*/
+	}
 	if counter == nil {
 		counter = new(countingWriter)
-		counter.lock = new(sync.Mutex)
-		counter.gapTime = time.Now()
 	}
 	h := StreamHandler(counter, formatter)
 
 	return FuncHandler(func(r *Record) error {
-		//if counter.count > limit {
-		if time.Since(counter.gapTime) > elapseTime {
-			counter.lock.Lock()
-			//if counter.count > limit {
-			if time.Since(counter.gapTime) > elapseTime {
-				f, err := os.OpenFile(
-					filepath.Join(path, fmt.Sprintf("%s.log", strings.Replace(r.Time.Format("060102_150405.00"), ".", "", 1))),
-					os.O_CREATE|os.O_APPEND|os.O_RDWR,
-					0600,
-				)
-				if err == nil {
-					counter.w.Close()
-					counter.w = f
-					counter.count = 0
-					counter.gapTime = time.Now()
-					fmt.Println("log will write in the new file")
-				}
-				/*
-			if counter.w != nil {
-				counter.w.Close()
-			}
-					counter.w = nil*/
-			}
-			counter.lock.Unlock()
+		if counter.count > limit {
+			counter.Close()
+			counter.w = nil
 		}
 		if counter.w == nil {
 			f, err := os.OpenFile(
-				filepath.Join(path, fmt.Sprintf("%s.log", strings.Replace(r.Time.Format("060102__150405.00"), ".", "", 1))),
-				os.O_CREATE|os.O_APPEND|os.O_RDWR,
+				filepath.Join(path, fmt.Sprintf("%s.log", strings.Replace(r.Time.Format("060102150405.00"), ".", "", 1))),
+				os.O_CREATE|os.O_APPEND|os.O_WRONLY,
 				0600,
 			)
 			if err != nil {
@@ -222,8 +175,6 @@ func RotatingFileHandler(path string, limit uint, formatter Format) (Handler, er
 			}
 			counter.w = f
 			counter.count = 0
-			counter.gapTime = time.Now()
-			fmt.Println("log will write in new file")
 		}
 		return h.Log(r)
 	}), nil

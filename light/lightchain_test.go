@@ -1,18 +1,18 @@
-// Copyright 2018 The MATRIX Authors as well as Copyright 2014-2017 The go-ethereum Authors
-// This file is consisted of the MATRIX library and part of the go-ethereum library.
+// Copyright 2016 The go-ethereum Authors
+// This file is part of the go-ethereum library.
 //
-// The MATRIX-ethereum library is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject tothe following conditions:
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
 //
-//The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-//WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISINGFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-//OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package light
 
@@ -21,13 +21,13 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/matrix/go-matrix/common"
-	"github.com/matrix/go-matrix/consensus/manash"
-	"github.com/matrix/go-matrix/core"
-	"github.com/matrix/go-matrix/core/rawdb"
-	"github.com/matrix/go-matrix/core/types"
-	"github.com/matrix/go-matrix/mandb"
-	"github.com/matrix/go-matrix/params"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/consensus/ethash"
+	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/rawdb"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/params"
 )
 
 // So we can deterministically seed different blockchains
@@ -37,8 +37,8 @@ var (
 )
 
 // makeHeaderChain creates a deterministic chain of headers rooted at parent.
-func makeHeaderChain(parent *types.Header, n int, db mandb.Database, seed int) []*types.Header {
-	blocks, _ := core.GenerateChain(params.TestChainConfig, types.NewBlockWithHeader(parent), manash.NewFaker(), db, n, func(i int, b *core.BlockGen) {
+func makeHeaderChain(parent *types.Header, n int, db ethdb.Database, seed int) []*types.Header {
+	blocks, _ := core.GenerateChain(params.TestChainConfig, types.NewBlockWithHeader(parent), ethash.NewFaker(), db, n, func(i int, b *core.BlockGen) {
 		b.SetCoinbase(common.Address{0: byte(seed), 19: byte(i)})
 	})
 	headers := make([]*types.Header, len(blocks))
@@ -51,11 +51,11 @@ func makeHeaderChain(parent *types.Header, n int, db mandb.Database, seed int) [
 // newCanonical creates a chain database, and injects a deterministic canonical
 // chain. Depending on the full flag, if creates either a full block chain or a
 // header only chain.
-func newCanonical(n int) (mandb.Database, *LightChain, error) {
-	db := mandb.NewMemDatabase()
+func newCanonical(n int) (ethdb.Database, *LightChain, error) {
+	db := ethdb.NewMemDatabase()
 	gspec := core.Genesis{Config: params.TestChainConfig}
 	genesis := gspec.MustCommit(db)
-	blockchain, _ := NewLightChain(&dummyOdr{db: db}, gspec.Config, manash.NewFaker())
+	blockchain, _ := NewLightChain(&dummyOdr{db: db, indexerConfig: TestClientIndexerConfig}, gspec.Config, ethash.NewFaker())
 
 	// Create and inject the requested chain
 	if n == 0 {
@@ -69,13 +69,13 @@ func newCanonical(n int) (mandb.Database, *LightChain, error) {
 
 // newTestLightChain creates a LightChain that doesn't validate anything.
 func newTestLightChain() *LightChain {
-	db := mandb.NewMemDatabase()
+	db := ethdb.NewMemDatabase()
 	gspec := &core.Genesis{
 		Difficulty: big.NewInt(1),
 		Config:     params.TestChainConfig,
 	}
 	gspec.MustCommit(db)
-	lc, err := NewLightChain(&dummyOdr{db: db}, gspec.Config, manash.NewFullFaker())
+	lc, err := NewLightChain(&dummyOdr{db: db}, gspec.Config, ethash.NewFullFaker())
 	if err != nil {
 		panic(err)
 	}
@@ -265,15 +265,20 @@ func makeHeaderChainWithDiff(genesis *types.Block, d []int, seed byte) []*types.
 
 type dummyOdr struct {
 	OdrBackend
-	db mandb.Database
+	db            ethdb.Database
+	indexerConfig *IndexerConfig
 }
 
-func (odr *dummyOdr) Database() mandb.Database {
+func (odr *dummyOdr) Database() ethdb.Database {
 	return odr.db
 }
 
 func (odr *dummyOdr) Retrieve(ctx context.Context, req OdrRequest) error {
 	return nil
+}
+
+func (odr *dummyOdr) IndexerConfig() *IndexerConfig {
+	return odr.indexerConfig
 }
 
 // Tests that reorganizing a long difficult chain after a short easy one
@@ -326,7 +331,7 @@ func TestBadHeaderHashes(t *testing.T) {
 func TestReorgBadHeaderHashes(t *testing.T) {
 	bc := newTestLightChain()
 
-	// Create a chain, import and ban aferwards
+	// Create a chain, import and ban afterwards
 	headers := makeHeaderChainWithDiff(bc.genesisBlock, []int{1, 2, 3, 4}, 10)
 
 	if _, err := bc.InsertHeaderChain(headers, 1); err != nil {
@@ -339,7 +344,7 @@ func TestReorgBadHeaderHashes(t *testing.T) {
 	defer func() { delete(core.BadHashes, headers[3].Hash()) }()
 
 	// Create a new LightChain and check that it rolled back the state.
-	ncm, err := NewLightChain(&dummyOdr{db: bc.chainDb}, params.TestChainConfig, manash.NewFaker())
+	ncm, err := NewLightChain(&dummyOdr{db: bc.chainDb}, params.TestChainConfig, ethash.NewFaker())
 	if err != nil {
 		t.Fatalf("failed to create new chain manager: %v", err)
 	}
